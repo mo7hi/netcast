@@ -48,6 +48,7 @@ from aiohttp import web
 from daemon.api.web import create_app
 from daemon.config import NetCastConfig, load_config
 from daemon.plugins import NetCastPluginManager, get_plugin_manager
+from daemon.state import DaemonState
 from daemon.watchdog import DeadMansSwitch
 
 if TYPE_CHECKING:
@@ -161,7 +162,7 @@ async def check_event_loop_health(
         )
         return False
 
-    if runner is not None and runner.server is not None and not runner.server.is_serving():
+    if runner is not None and not runner.sites:
         logger.error("Health check failed: aiohttp web server is no longer serving")
         return False
 
@@ -234,7 +235,7 @@ async def run_daemon(config_path: Path | str | None = None) -> None:
     # 5. Arm Dead Man's Switch
     dms = DeadMansSwitch()
     try:
-        dms.arm(fork_sentinel=True)
+        dms.arm(fork_sentinel=True, install_signal_handlers=False)
     except Exception as exc:
         logger.warning("Could not arm Dead Man's Switch sentinel: %s", exc)
 
@@ -247,9 +248,14 @@ async def run_daemon(config_path: Path | str | None = None) -> None:
         config.daemon.listen_host,
         config.daemon.listen_port,
     )
-    app_res = create_app(config=config, plugin_mgr=plugin_mgr, session_token=session_token)
-    app = await app_res if asyncio.iscoroutine(app_res) else app_res
+    state = DaemonState(
+        config=config, plugin_mgr=plugin_mgr, session_token=session_token, dms=dms
+    )
+    app = create_app(
+        daemon_state=state, plugin_mgr=plugin_mgr, session_token=session_token, config=config
+    )
     runner = web.AppRunner(app)
+    state.attach(app, runner)
     await runner.setup()
     site = web.TCPSite(
         runner,
@@ -257,6 +263,7 @@ async def run_daemon(config_path: Path | str | None = None) -> None:
         port=config.daemon.listen_port,
     )
     await site.start()
+    await state.start()  # D-Bus service + client monitor
 
     # 8. Start systemd watchdog background task if $WATCHDOG_USEC is set
     watchdog_task: asyncio.Task[None] | None = None
@@ -284,6 +291,8 @@ async def run_daemon(config_path: Path | str | None = None) -> None:
 
     # 11. Send STOPPING=1 on shutdown
     notifier.notify("STOPPING=1\nSTATUS=NetCast daemon shutting down")
+
+    await state.shutdown()  # stop hotspot, tear down firewall, close D-Bus
 
     # 12. Cancel background watchdog task
     if watchdog_task is not None:

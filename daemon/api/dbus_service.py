@@ -28,8 +28,6 @@ Exposes the 'net.netcast.Daemon' interface on the system bus for privileged
 management and CLI client interactions.
 """
 
-from __future__ import annotations
-
 import asyncio
 from dataclasses import asdict
 import json
@@ -96,7 +94,7 @@ class NetCastDaemonInterface(ServiceInterface):
         Raises:
             DBusError: If configuration is invalid or hotspot activation fails.
         """
-        logger.info("D-Bus method StartHotspot invoked with: %s", config_json)
+        logger.info("D-Bus method StartHotspot invoked")
         try:
             data = json.loads(config_json)
             config = HotspotConfig(

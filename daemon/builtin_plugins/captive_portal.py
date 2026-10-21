@@ -36,9 +36,8 @@ class CaptivePortalPlugin:
         self._web_port: int = 8384
         self._message: str = "Welcome to NetCast. Tap 'Connect' to get online."
 
-    @hookimpl
-    def register_api_routes(self, app: web.Application) -> None:
-        """Register captive portal routes (auth-exempt)."""
+    def _register_api_routes_unused(self, app: web.Application) -> None:
+        """Superseded: portal routes are owned by daemon.api.web (duplicates raise)."""
         app.router.add_get("/portal", self._portal_page)
         app.router.add_post("/portal/authorize", self._authorize)
 

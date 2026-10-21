@@ -89,11 +89,6 @@
 {/if}
 
 <style>
-  @import './themes/default-dark.css';
-  @import './themes/panic.css';
-  @import './themes/cyberpunk.css';
-  @import './themes/retro-95.css';
-
   :global(*) {
     margin: 0;
     padding: 0;

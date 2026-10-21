@@ -243,7 +243,7 @@ async def check_linux_611_iwlwifi(config: HotspotConfig) -> Check:
             pass
 
     if driver == "iwlwifi" and kernel_version >= (6, 11):
-        if "5" in config.band:
+        if config.is_5ghz:
             return Check(
                 name="Linux 6.11+ iwlwifi restriction",
                 status="fail",

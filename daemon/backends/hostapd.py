@@ -26,7 +26,10 @@
 
 import asyncio
 import contextlib
+import grp
 import logging
+import os
+import pwd
 import re
 import shutil
 from datetime import UTC, datetime
@@ -46,6 +49,14 @@ logger = logging.getLogger(__name__)
 RUN_DIR = Path("/run/netcast")
 VAR_DIR = Path("/var/lib/netcast")
 MANAGED_IFACES_DIR = VAR_DIR / "managed_ifaces"
+
+
+def _tail(path: Path, max_bytes: int = 2000) -> str:
+    """Return the tail of a subprocess log file for error messages."""
+    try:
+        return path.read_bytes()[-max_bytes:].decode("utf-8", errors="ignore").strip()
+    except OSError:
+        return ""
 
 
 class HostapdBackend(NetworkingBackend):
@@ -89,7 +100,8 @@ class HostapdBackend(NetworkingBackend):
         Args:
             iface: Interface identifier.
         """
-        validate_interface_name(iface)
+        if not validate_interface_name(iface):
+            raise ValueError(f"Invalid interface name: {iface!r}")
         nmcli_path = shutil.which("nmcli")
         if not nmcli_path:
             return
@@ -146,7 +158,8 @@ class HostapdBackend(NetworkingBackend):
         Args:
             iface: Interface identifier.
         """
-        validate_interface_name(iface)
+        if not validate_interface_name(iface):
+            raise ValueError(f"Invalid interface name: {iface!r}")
         marker = self._managed_dir / iface
         if marker.exists() or self._was_unmanaged_by_us:
             nmcli_path = shutil.which("nmcli")
@@ -183,7 +196,7 @@ class HostapdBackend(NetworkingBackend):
         Returns:
             Hostapd configuration file string.
         """
-        is_5ghz = "5" in config.band
+        is_5ghz = config.is_5ghz
         hw_mode = "a" if is_5ghz else "g"
         default_channel = 36 if is_5ghz else 6
         channel = config.channel if config.channel > 0 else default_channel
@@ -199,7 +212,6 @@ class HostapdBackend(NetworkingBackend):
             f"channel={channel}",
             "ieee80211n=1",
             f"ctrl_interface={ctrl_dir}",
-            "ctrl_interface_group=0",
         ]
 
         if is_5ghz:
@@ -238,6 +250,9 @@ class HostapdBackend(NetworkingBackend):
             "domain-needed",
             "bogus-priv",
             "no-poll",
+            f"user={pwd.getpwuid(os.getuid()).pw_name}",
+            f"group={grp.getgrgid(os.getgid()).gr_name}",
+            "log-facility=-",
             "dhcp-range=192.168.12.10,192.168.12.250,255.255.255.0,24h",
             f"dhcp-option=option:router,{self._gateway_ip}",
             f"dhcp-option=option:dns-server,{self._gateway_ip}",
@@ -253,7 +268,8 @@ class HostapdBackend(NetworkingBackend):
         Args:
             iface: AP interface identifier.
         """
-        validate_interface_name(iface)
+        if not validate_interface_name(iface):
+            raise ValueError(f"Invalid interface name: {iface!r}")
 
         # Flush existing addresses from interface
         proc_flush = await asyncio.create_subprocess_exec(
@@ -328,42 +344,42 @@ class HostapdBackend(NetworkingBackend):
 
         # 4. Start hostapd subprocess
         logger.info("Spawning hostapd with config %s", hostapd_conf_path)
-        self._hostapd_proc = await asyncio.create_subprocess_exec(
-            "hostapd",
-            str(hostapd_conf_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        hostapd_log = self._run_dir / "hostapd.log"
+        with hostapd_log.open("wb") as log_fh:
+            self._hostapd_proc = await asyncio.create_subprocess_exec(
+                "hostapd",
+                str(hostapd_conf_path),
+                stdout=log_fh,
+                stderr=asyncio.subprocess.STDOUT,
+            )
 
         # Brief delay to detect immediate initialization failures
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
         if self._hostapd_proc.returncode is not None:
-            _, stderr = await self._hostapd_proc.communicate()
-            err_msg = stderr.decode("utf-8", errors="ignore").strip()
-            raise RuntimeError(
-                f"hostapd failed to start (exit {self._hostapd_proc.returncode}): {err_msg}"
-            )
+            code = self._hostapd_proc.returncode
+            err_msg = _tail(hostapd_log)
+            await self.stop_hotspot()  # also restores NetworkManager management
+            raise RuntimeError(f"hostapd failed to start (exit {code}): {err_msg}")
 
         # 5. Start dnsmasq subprocess (in foreground mode with -k)
         logger.info("Spawning dnsmasq with config %s", dnsmasq_conf_path)
-        self._dnsmasq_proc = await asyncio.create_subprocess_exec(
-            "dnsmasq",
-            "-C",
-            str(dnsmasq_conf_path),
-            "-k",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        dnsmasq_log = self._run_dir / "dnsmasq.log"
+        with dnsmasq_log.open("wb") as log_fh:
+            self._dnsmasq_proc = await asyncio.create_subprocess_exec(
+                "dnsmasq",
+                "-C",
+                str(dnsmasq_conf_path),
+                "-k",
+                stdout=log_fh,
+                stderr=asyncio.subprocess.STDOUT,
+            )
 
         await asyncio.sleep(0.5)
         if self._dnsmasq_proc.returncode is not None:
-            _, stderr = await self._dnsmasq_proc.communicate()
-            err_msg = stderr.decode("utf-8", errors="ignore").strip()
-            # Clean up hostapd on failure
-            await self.stop_hotspot()
-            raise RuntimeError(
-                f"dnsmasq failed to start (exit {self._dnsmasq_proc.returncode}): {err_msg}"
-            )
+            code = self._dnsmasq_proc.returncode
+            err_msg = _tail(dnsmasq_log)
+            await self.stop_hotspot()  # clean up hostapd on failure
+            raise RuntimeError(f"dnsmasq failed to start (exit {code}): {err_msg}")
 
         return await self.get_status()
 
@@ -430,6 +446,32 @@ class HostapdBackend(NetworkingBackend):
 
         self._current_config = None
 
+    async def _live_station_macs(self, ap_iface: str) -> set[str] | None:
+        """MACs currently associated with the AP, or None if undeterminable."""
+        iw_bin = shutil.which("iw")
+        if not iw_bin:
+            return None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                iw_bin,
+                "dev",
+                ap_iface,
+                "station",
+                "dump",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await proc.communicate()
+        except Exception:
+            return None
+        if proc.returncode != 0:
+            return None
+        return {
+            line.split()[1].lower()
+            for line in stdout.decode("utf-8", errors="ignore").splitlines()
+            if line.startswith("Station ")
+        }
+
     async def get_connected_clients(self) -> list[ClientInfo]:
         """Parse dnsmasq leases and hostapd station dump to compile connected clients.
 
@@ -467,6 +509,11 @@ class HostapdBackend(NetworkingBackend):
                             )
                 except Exception as exc:
                     logger.debug("Failed reading lease file %s: %s", lp, exc)
+
+        # 1b. Drop stale DHCP leases: only keep stations that are associated right now
+        live = await self._live_station_macs(ap_iface)
+        if live is not None:
+            clients = {m: c for m, c in clients.items() if m in live}
 
         # 2. Augment station stats via hostapd_cli if socket exists, or iw station dump
         ctrl_path = self._run_dir / "hostapd_ctrl"

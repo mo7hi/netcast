@@ -40,7 +40,7 @@ rm -f /var/lib/netcast/session.token 2>/dev/null || true
 rm -f /var/lib/netcast/hostapd.conf 2>/dev/null || true
 rm -f /var/lib/netcast/dnsmasq.conf 2>/dev/null || true
 
-# 6. Re-enable IP forwarding only if we were the ones who turned it on
+# 6. Disable IP forwarding again only if we were the ones who turned it on
 if [ -f /var/lib/netcast/ip_forward_was_off ]; then
     sysctl -w net.ipv4.ip_forward=0 2>/dev/null || true
     rm -f /var/lib/netcast/ip_forward_was_off

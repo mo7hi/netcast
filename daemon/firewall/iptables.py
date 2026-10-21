@@ -96,8 +96,8 @@ class IptablesBackend(FirewallBackend):
 
     async def setup_nat(self, source_iface: str, ap_iface: str, gateway_ip: str) -> None:
         """Set up IPv4 forwarding and masquerade rules using custom chains."""
-        validate_interface_name(source_iface)
-        validate_interface_name(ap_iface)
+        if not (validate_interface_name(source_iface) and validate_interface_name(ap_iface)):
+            raise ValueError("Invalid interface name")
         if not validate_ip_address(gateway_ip):
             raise ValueError(f"Invalid gateway IP: {gateway_ip}")
 
@@ -386,7 +386,8 @@ class IptablesBackend(FirewallBackend):
 
     async def setup_fair_share(self, ap_iface: str, total_bw_kbps: int, clients: list[str]) -> None:
         """Apply traffic shaping and fairness using Linux tc."""
-        validate_interface_name(ap_iface)
+        if not validate_interface_name(ap_iface):
+            raise ValueError("Invalid interface name")
         tc_bin = shutil.which("tc") or "/sbin/tc"
 
         cmd = [
@@ -400,7 +401,7 @@ class IptablesBackend(FirewallBackend):
             "bandwidth",
             f"{total_bw_kbps}kbit",
             "diffserv4",
-            "dual-srchost",
+            "dual-dsthost",
         ]
         proc = await asyncio.create_subprocess_exec(
             *cmd,

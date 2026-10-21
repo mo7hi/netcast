@@ -95,11 +95,15 @@ class HotspotConfig:
         """
         if not self.ssid or len(self.ssid.encode("utf-8")) > 32:
             raise ValueError("SSID must be between 1 and 32 UTF-8 bytes")
+        if any(ord(c) < 32 or ord(c) == 127 for c in self.ssid):
+            raise ValueError("SSID must not contain control characters")
 
         if self.password is not None:
             pwd_len = len(self.password)
             if pwd_len < 8 or pwd_len > 63:
                 raise ValueError("WPA2 passphrase must be between 8 and 63 ASCII characters")
+            if not (self.password.isascii() and self.password.isprintable()):
+                raise ValueError("WPA2 passphrase must be printable ASCII")
 
         valid_bands = {"2.4GHz", "5GHz", "6GHz", "2.4", "5", "6", "bg", "a"}
         if self.band not in valid_bands:
@@ -113,6 +117,11 @@ class HotspotConfig:
 
         if self.source_interface and not validate_interface_name(self.source_interface):
             raise ValueError(f"Invalid source interface name: {self.source_interface}")
+
+    @property
+    def is_5ghz(self) -> bool:
+        """True when the band selector means 5 GHz ('a' from the UI/CLI, or '5GHz')."""
+        return self.band in ("a", "5", "5GHz")
 
 
 @dataclass(slots=True)

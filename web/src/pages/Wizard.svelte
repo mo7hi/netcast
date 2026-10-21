@@ -22,7 +22,9 @@
 
   function generatePassword() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-    password = Array.from({length: 12}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const buf = new Uint32Array(12);
+    crypto.getRandomValues(buf);
+    password = Array.from(buf, (n) => chars[n % chars.length]).join('');
   }
 
   async function handleStart() {
@@ -63,7 +65,7 @@
         <button
           class="source-card"
           class:selected={sourceType === src.id}
-          on:click={() => { sourceType = src.id; step = 2; }}
+          on:click={() => { sourceType = src.id; selectedSource = ifaces[src.id]?.[0] || ''; step = 2; }}
           class:disabled={src.id === 'usb' && !ifaces.usb.length}
         >
           <span class="source-icon">{src.icon}</span>

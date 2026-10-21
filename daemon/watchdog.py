@@ -281,6 +281,7 @@ class DeadMansSwitch:
         self,
         initial_state: dict[str, Any] | None = None,
         fork_sentinel: bool = True,
+        install_signal_handlers: bool = True,
     ) -> None:
         """Arm the Dead Man's Switch across all defense layers.
 
@@ -295,7 +296,7 @@ class DeadMansSwitch:
             self._state.update(initial_state)
 
         # 1. Layer 1: Register signal handlers and atexit
-        self._setup_layer1()
+        self._setup_layer1(install_signals=install_signal_handlers)
 
         # 2. Persist state to disk
         self._state_file = save_state(self._state)
@@ -355,11 +356,14 @@ class DeadMansSwitch:
             except Exception as exc:
                 logger.error("Error in cleanup callback %r: %s", cb, exc, exc_info=True)
 
-    def _setup_layer1(self) -> None:
+    def _setup_layer1(self, install_signals: bool = True) -> None:
         """Configure Layer 1 signal handlers and atexit hook."""
         if not self._atexit_registered:
             atexit.register(self._layer1_atexit_handler)
             self._atexit_registered = True
+
+        if not install_signals:
+            return  # the asyncio loop owns SIGTERM/SIGINT for graceful shutdown
 
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             try:
@@ -398,9 +402,11 @@ class DeadMansSwitch:
         if pid == 0:
             # Child Sentinel Process
             os.close(w_fd)
-            self._sentinel_child_loop(r_fd, self._state_file)
-            # Should never reach here
-            os._exit(0)
+            try:
+                self._sentinel_child_loop(r_fd, self._state_file)
+            finally:
+                # never unwind the inherited asyncio stack in the forked child
+                os._exit(0)
         else:
             # Parent Process
             os.close(r_fd)

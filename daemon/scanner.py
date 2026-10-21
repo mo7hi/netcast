@@ -103,7 +103,7 @@ def freq_to_channel(freq_mhz: int) -> int | None:
     if 5160 <= freq_mhz <= 5885:
         return (freq_mhz - 5000) // 5
     if 5935 <= freq_mhz <= 7115:
-        return (freq_mhz - 5950) // 5 + 1
+        return (freq_mhz - 5950) // 5
     return None
 
 
@@ -230,7 +230,8 @@ async def get_interface_capabilities(iface: str) -> InterfaceCapabilities:
         ValueError: If interface name is invalid.
         RuntimeError: If device capabilities cannot be queried.
     """
-    validate_interface_name(iface)
+    if not validate_interface_name(iface):
+            raise ValueError(f"Invalid interface name: {iface!r}")
 
     # 1. Detect driver from sysfs
     driver = "unknown"
@@ -431,7 +432,8 @@ async def get_connected_channel(iface: str) -> int | None:
     Returns:
         Channel number if associated, or None if disconnected/unavailable.
     """
-    validate_interface_name(iface)
+    if not validate_interface_name(iface):
+            raise ValueError(f"Invalid interface name: {iface!r}")
     iw_bin = find_binary("iw")
 
     # Try 'iw dev <iface> link'

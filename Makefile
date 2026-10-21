@@ -55,6 +55,8 @@ install: check-root check-web setup-user
 
 	# Python packages (install system-wide)
 	pip install --break-system-packages . 2>/dev/null || pip install .
+	# pip may install entry points to /usr/local/bin; the unit expects $(BINDIR)
+	for b in netcastd netcast; do p=$$(command -v $$b); [ -n "$$p" ] && [ "$$p" != "$(BINDIR)/$$b" ] && ln -sf "$$p" "$(DESTDIR)$(BINDIR)/$$b" || true; done
 
 	# Web UI static files
 	install -d $(DESTDIR)$(LIBDIR)/netcast/web
@@ -71,6 +73,7 @@ install: check-root check-web setup-user
 
 	# PolicyKit rules
 	install -Dm644 polkit/net.netcast.policy $(DESTDIR)$(PREFIX)/share/polkit-1/actions/net.netcast.policy
+	install -Dm644 polkit/50-netcast-nm.rules $(DESTDIR)$(SYSCONFDIR)/polkit-1/rules.d/50-netcast-nm.rules
 
 	# Desktop entry
 	install -Dm644 packaging/netcast.desktop $(DESTDIR)$(PREFIX)/share/applications/netcast.desktop
@@ -117,6 +120,7 @@ uninstall: check-root
 	rm -f $(DESTDIR)$(SYSCONFDIR)/systemd/system/netcastd.service
 	rm -f $(DESTDIR)$(SYSCONFDIR)/dbus-1/system.d/net.netcast.Daemon.conf
 	rm -f $(DESTDIR)$(PREFIX)/share/polkit-1/actions/net.netcast.policy
+	rm -f $(DESTDIR)$(SYSCONFDIR)/polkit-1/rules.d/50-netcast-nm.rules
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/netcast.desktop
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/netcast.svg
 	-systemctl daemon-reload

@@ -39,9 +39,11 @@ import hmac
 import io
 import json
 import logging
+import ipaddress
 import os
 import shutil
 from collections.abc import Callable
+from urllib.parse import urlsplit
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -250,7 +252,7 @@ async def run_preflight_checks() -> dict[str, Any]:
         "name": "ip_forwarding",
         "title": "IPv4 Packet Forwarding",
         "passed": ip_forward_ok,
-        "required": True,
+        "required": False,  # the daemon enables forwarding itself when starting NAT
         "message": ip_forward_msg,
     })
 
@@ -576,6 +578,14 @@ async def session_auth_middleware(
     if path in PROBE_PATHS:
         return await handler(request)
 
+    # Reject DNS-rebinding attempts: Host must be localhost or an IP literal
+    if (path.startswith("/api/") or path == "/ws") and not _host_is_safe(request):
+        return web.json_response({"error": "Forbidden host"}, status=403)
+
+    # Token bootstrap: handler itself restricts this to loopback peers
+    if path == "/api/token":
+        return await handler(request)
+
     # Protected REST API routes require valid token
     if path.startswith("/api/"):
         token = read_session_token(request.app)
@@ -598,10 +608,12 @@ async def session_auth_middleware(
     # Real-time WebSocket route
     elif path == "/ws":
         token = read_session_token(request.app)
-        if token:
-            provided = request.headers.get("X-NetCast-Token") or request.query.get("token")
-            if provided and not hmac.compare_digest(provided.strip(), token.strip()):
-                return web.json_response({"error": "Unauthorized"}, status=401)
+        provided = request.headers.get("X-NetCast-Token") or request.query.get("token")
+        origin = request.headers.get("Origin")
+        if origin and urlsplit(origin).netloc != request.host:
+            return web.json_response({"error": "Forbidden origin"}, status=403)
+        if not token or not provided or not hmac.compare_digest(provided.strip(), token.strip()):
+            return web.json_response({"error": "Unauthorized"}, status=401)
 
     return await handler(request)
 
@@ -609,6 +621,36 @@ async def session_auth_middleware(
 # ---------------------------------------------------------------------------
 # REST API Handlers
 # ---------------------------------------------------------------------------
+
+def _host_is_safe(request: web.Request) -> bool:
+    """Host header must be 'localhost' or an IP literal (blocks DNS rebinding)."""
+    try:
+        host = urlsplit("//" + request.host).hostname
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+async def handle_get_token(request: web.Request) -> web.Response:
+    """GET /api/token - Give the session token to the local UI (loopback peers only)."""
+    if request.remote not in ("127.0.0.1", "::1"):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    origin = request.headers.get("Origin")
+    if origin and urlsplit(origin).netloc != request.host:
+        return web.json_response({"error": "Forbidden origin"}, status=403)
+    token = read_session_token(request.app)
+    if not token:
+        return web.json_response({"error": "Token not initialized"}, status=503)
+    return web.json_response({"token": token}, headers={"Cache-Control": "no-store"})
+
 
 async def handle_get_status(request: web.Request) -> web.Response:
     """GET /api/status - Return current operational status."""
@@ -675,7 +717,8 @@ async def handle_post_hotspot_start(request: web.Request) -> web.Response:
         return web.json_response(status_dict, status=200)
     except Exception as exc:
         logger.exception("Failed to start hotspot: %s", exc)
-        return web.json_response({"error": f"Failed to start hotspot: {exc}"}, status=500)
+        code = 400 if isinstance(exc, (ValueError, NotImplementedError)) else 500
+        return web.json_response({"error": f"Failed to start hotspot: {exc}"}, status=code)
 
 
 async def handle_post_hotspot_stop(request: web.Request) -> web.Response:
@@ -716,7 +759,7 @@ async def handle_get_qr(request: web.Request) -> web.Response:
     qr = segno.helpers.make_wifi(ssid=ssid, password=password, security=security)
 
     buff = io.BytesIO()
-    qr.save(buff, kind="svg", scale=4, border=2)
+    qr.save(buff, kind="svg", scale=4, border=2, dark="#000000", light="#ffffff")
     return web.Response(body=buff.getvalue(), content_type="image/svg+xml")
 
 
@@ -752,9 +795,12 @@ async def handle_put_config(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid JSON body"}, status=400)
 
     if hasattr(daemon_state, "update_config"):
-        res = daemon_state.update_config(updates)
-        if asyncio.iscoroutine(res):
-            res = await res
+        try:
+            res = daemon_state.update_config(updates)
+            if asyncio.iscoroutine(res):
+                res = await res
+        except (ValueError, TypeError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
         return web.json_response(res)
 
     if hasattr(daemon_state, "config") and isinstance(daemon_state.config, dict):
@@ -967,21 +1013,22 @@ async def handle_portal_get(request: web.Request) -> web.Response:
         except Exception as exc:
             logger.debug("Failed reading custom portal template: %s", exc)
 
-    return web.Response(text=CAPTIVE_PORTAL_HTML, content_type="text/html")
+    cfg = getattr(request.app["daemon_state"], "config", {})
+    msg = (cfg.get("captive_portal", {}) if isinstance(cfg, dict) else {}).get("message")
+    page = CAPTIVE_PORTAL_HTML
+    if msg:
+        import html as _html
+
+        page = page.replace(
+            "Tap the button below to connect to the network and get instant internet access.",
+            _html.escape(msg),
+        )
+    return web.Response(text=page, content_type="text/html")
 
 
 async def handle_portal_authorize(request: web.Request) -> web.Response:
     """POST /portal/authorize - Authorize client IP in nftables/iptables."""
     client_ip = request.remote or "127.0.0.1"
-
-    # Allow optional client IP in body for testing/simulation
-    try:
-        if request.can_read_body:
-            body = await request.json()
-            if isinstance(body, dict) and body.get("ip"):
-                client_ip = str(body["ip"]).strip()
-    except Exception:
-        pass
 
     if not validate_ip_address(client_ip):
         return web.json_response({"error": f"Invalid client IP address '{client_ip}'"}, status=400)
@@ -996,11 +1043,12 @@ async def handle_portal_authorize(request: web.Request) -> web.Response:
                 await res
         except Exception as exc:
             logger.warning("daemon_state.authorize_client failed: %s", exc)
+            return web.json_response({"error": "Authorization failed"}, status=500)
 
     # 2. Add client IP to nftables set 'authorized_clients'
     if shutil.which("nft"):
         try:
-            cmd = ["nft", "add", "element", "inet", "netcast", "authorized_clients", f"{{ {client_ip} }}"]
+            cmd = ["nft", "add", "element", "inet", "netcast", "authenticated_clients", f"{{ {client_ip} }}"]
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -1150,7 +1198,7 @@ async def handle_spa_fallback(request: web.Request) -> web.Response:
         # Check if direct file exists (e.g. /favicon.svg)
         candidate = (dist_dir / path.lstrip("/")).resolve()
         try:
-            if candidate.is_file() and str(candidate).startswith(str(dist_dir.resolve())):
+            if candidate.is_file() and candidate.is_relative_to(dist_dir.resolve()):
                 return web.FileResponse(candidate)
         except Exception:
             pass
@@ -1227,6 +1275,7 @@ def create_app(
         app.router.add_get(probe, handle_probe_redirect)
 
     # Register REST API routes
+    app.router.add_get("/api/token", handle_get_token)
     app.router.add_get("/api/health", handle_get_status)
     app.router.add_get("/api/status", handle_get_status)
     app.router.add_get("/api/clients", handle_get_clients)

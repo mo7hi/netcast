@@ -121,7 +121,8 @@ class NetworkManagerBackend(NetworkingBackend):
         Raises:
             RuntimeError: If device cannot be located via NetworkManager.
         """
-        validate_interface_name(iface_name)
+        if not validate_interface_name(iface_name):
+            raise ValueError(f"Invalid interface name: {iface_name!r}")
         bus = await self._get_bus()
         introspection = await bus.introspect(NM_BUS_NAME, NM_OBJECT_PATH)
         nm_obj = bus.get_proxy_object(NM_BUS_NAME, NM_OBJECT_PATH, introspection)
@@ -172,7 +173,7 @@ class NetworkManagerBackend(NetworkingBackend):
         # Build connection settings specification
         conn_id = f"NetCast-{config.ssid}"
         conn_uuid = str(uuid.uuid4())
-        band_code = "a" if "5" in config.band else "bg"
+        band_code = "a" if config.is_5ghz else "bg"
 
         settings: dict[str, dict[str, Variant]] = {
             "connection": {
@@ -230,6 +231,9 @@ class NetworkManagerBackend(NetworkingBackend):
             status = await self.get_status()
             if status.active:
                 break
+        else:
+            await self.stop_hotspot()
+            raise RuntimeError("NetworkManager did not activate the hotspot within 10 seconds")
 
         # Attempt to determine assigned gateway IP
         await self._resolve_gateway_ip(bus, str(active_path))

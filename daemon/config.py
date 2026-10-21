@@ -46,7 +46,7 @@ USER_CONFIG_PATH = Path.home() / ".config" / "netcast" / "config.toml"
 
 # Validation patterns
 VALID_BANDS: frozenset[str] = frozenset({"bg", "a"})
-VALID_SOURCE_TYPES: frozenset[str] = frozenset({"ethernet", "wifi", "pppoe", "usb"})
+VALID_SOURCE_TYPES: frozenset[str] = frozenset({"auto", "ethernet", "wifi", "pppoe", "usb"})
 SSID_PATTERN = re.compile(r"^.{1,32}$")
 INTERFACE_PATTERN = re.compile(r"^[a-zA-Z0-9_.:-]{1,16}$")
 
@@ -84,14 +84,14 @@ class HotspotConfig:
 
         if isinstance(self.channel, str):
             val = self.channel.strip().lower()
-            if val != "auto" and (not val.isdigit() or int(val) < 1 or int(val) > 196):
+            if val != "auto" and (not val.isdigit() or int(val) > 196):
                 raise ConfigError(
                     f"Invalid hotspot channel {self.channel!r}: must be 'auto' or 1..196."
                 )
         elif isinstance(self.channel, int):
-            if self.channel < 1 or self.channel > 196:
+            if self.channel < 0 or self.channel > 196:
                 raise ConfigError(
-                    f"Invalid hotspot channel {self.channel}: must be within 1..196."
+                    f"Invalid hotspot channel {self.channel}: must be 0 (auto) or 1..196."
                 )
         else:
             raise ConfigError(
@@ -114,7 +114,7 @@ class NetworkConfig:
                 f"must be one of {sorted(VALID_SOURCE_TYPES)}."
             )
 
-        if not self.source_interface or not INTERFACE_PATTERN.match(self.source_interface):
+        if self.source_interface and not INTERFACE_PATTERN.match(self.source_interface):
             raise ConfigError(
                 f"Invalid source_interface {self.source_interface!r}: "
                 "must be a valid Linux network interface name (1-16 chars)."
@@ -128,6 +128,7 @@ class DaemonConfig:
     listen_host: str = "127.0.0.1"
     listen_port: int = 8384
     theme: str = "default-dark"
+    log_level: str = "info"
 
     def validate(self) -> None:
         """Validate daemon web server settings."""
@@ -155,9 +156,9 @@ class FairShareConfig:
         if not isinstance(self.enabled, bool):
             raise ConfigError(f"Fair share 'enabled' must be boolean, got {self.enabled!r}.")
 
-        if self.total_bandwidth_kbps <= 0:
+        if self.total_bandwidth_kbps < 0:
             raise ConfigError(
-                f"total_bandwidth_kbps must be greater than 0, got {self.total_bandwidth_kbps}."
+                f"total_bandwidth_kbps must be 0 (auto) or positive, got {self.total_bandwidth_kbps}."
             )
 
 

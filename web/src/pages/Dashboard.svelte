@@ -4,6 +4,8 @@
   import { getStatus, getClients, getQR, stopHotspot } from '../lib/api.js';
 
   let qrSvg = '';
+  let qrFor = '';
+  let uptimeTimer;
   let pollTimer;
   let uptime = '0:00';
   let uptimeStart = Date.now();
@@ -14,19 +16,19 @@
     uptimeTick();
   });
 
-  onDestroy(() => { clearInterval(pollTimer); });
+  onDestroy(() => { clearInterval(pollTimer); clearInterval(uptimeTimer); });
 
   async function refresh() {
     try {
       const [s, c] = await Promise.all([getStatus(), getClients()]);
       status.set(s);
       clients.set(c);
-      if (!qrSvg && s.active) qrSvg = await getQR();
+      if (s.active && (!qrSvg || qrFor !== s.ssid)) { qrSvg = await getQR(); qrFor = s.ssid; }
     } catch {}
   }
 
   function uptimeTick() {
-    setInterval(() => {
+    uptimeTimer = setInterval(() => {
       const diff = Math.floor((Date.now() - uptimeStart) / 1000);
       const h = Math.floor(diff / 3600);
       const m = Math.floor((diff % 3600) / 60);
@@ -112,7 +114,7 @@
               </div>
               <div class="client-stats">
                 <span class="client-mac">{client.mac}</span>
-                <span class="traffic">↑{formatBytes(client.tx_bytes)} ↓{formatBytes(client.rx_bytes)}</span>
+                <span class="traffic">↑{formatBytes(client.rx_bytes)} ↓{formatBytes(client.tx_bytes)}</span>
               </div>
             </div>
           {/each}

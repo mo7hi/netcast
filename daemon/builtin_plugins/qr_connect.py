@@ -36,7 +36,6 @@ class QRConnectPlugin:
     @hookimpl
     def register_api_routes(self, app: web.Application) -> None:
         """Register QR code API route."""
-        app.router.add_get("/api/qr", self._serve_qr)
         app.router.add_get("/api/qr.png", self._serve_qr_png)
         app.router.add_get("/api/qr.svg", self._serve_qr)
 
@@ -75,8 +74,8 @@ class QRConnectPlugin:
             buf,
             kind="svg",
             scale=8,
-            dark="#e8e8f0",      # QR dots color (light for dark theme)
-            light="#00000000",   # Transparent background
+            dark="#000000",      # QR dots color (light for dark theme)
+            light="#ffffff",   # Transparent background
             xmldecl=False,
         )
         self._svg_cache = buf.getvalue().decode("utf-8")
@@ -94,7 +93,7 @@ class QRConnectPlugin:
 
         qr = self._generate_qr()
         buf = io.BytesIO()
-        qr.save(buf, kind="png", scale=10, dark="#e8e8f0", light="#0f0f23")
+        qr.save(buf, kind="png", scale=10, dark="#000000", light="#ffffff")
         return web.Response(
             body=buf.getvalue(),
             content_type="image/png",

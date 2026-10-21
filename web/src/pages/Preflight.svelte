@@ -67,7 +67,7 @@
           <span class="pass-icon">✓</span>
           All checks passed — you're good to go!
         </div>
-        <button class="primary-btn" on:click={() => page.set('dashboard')}>Continue to Dashboard →</button>
+        <button class="primary-btn" on:click={() => page.set('wizard')}>Back to Wizard to start the hotspot →</button>
       {:else}
         <div class="fail-banner">
           <span class="fail-icon">✗</span>

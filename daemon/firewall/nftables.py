@@ -25,7 +25,6 @@
 """Nftables implementation of NetCast FirewallBackend."""
 
 import asyncio
-import contextlib
 import logging
 import shutil
 from pathlib import Path
@@ -108,6 +107,9 @@ class NftablesBackend(FirewallBackend):
             Nftables script string.
         """
         lines = [
+            # add+delete makes applying this script an atomic full replacement
+            f"add table {TABLE_FAMILY} {TABLE_NAME}",
+            f"delete table {TABLE_FAMILY} {TABLE_NAME}",
             f"table {TABLE_FAMILY} {TABLE_NAME} {{",
             "    set authenticated_clients {",
             "        type ipv4_addr",
@@ -191,8 +193,8 @@ class NftablesBackend(FirewallBackend):
             ap_iface: Inbound access point interface.
             gateway_ip: Gateway IP on the AP interface.
         """
-        validate_interface_name(source_iface)
-        validate_interface_name(ap_iface)
+        if not (validate_interface_name(source_iface) and validate_interface_name(ap_iface)):
+            raise ValueError("Invalid interface name")
         if not validate_ip_address(gateway_ip):
             raise ValueError(f"Invalid gateway IP: {gateway_ip}")
 
@@ -202,10 +204,7 @@ class NftablesBackend(FirewallBackend):
 
         await self._enable_ip_forwarding()
 
-        # Delete existing netcast table if present to ensure clean state
-        with contextlib.suppress(Exception):
-            await self.teardown_nat()
-
+        # The ruleset starts with add+delete table, so applying it replaces old state.
         ruleset = self._build_ruleset()
         logger.info("Applying nftables NAT rules for %s -> %s", ap_iface, source_iface)
         await self._execute_nft(ruleset)
@@ -312,7 +311,8 @@ class NftablesBackend(FirewallBackend):
 
     async def setup_fair_share(self, ap_iface: str, total_bw_kbps: int, clients: list[str]) -> None:
         """Apply fair-share bandwidth management via Linux Traffic Control (tc)."""
-        validate_interface_name(ap_iface)
+        if not validate_interface_name(ap_iface):
+            raise ValueError("Invalid interface name")
         if total_bw_kbps <= 0:
             raise ValueError("Bandwidth must be positive")
 
@@ -331,7 +331,7 @@ class NftablesBackend(FirewallBackend):
             "bandwidth",
             f"{total_bw_kbps}kbit",
             "diffserv4",
-            "dual-srchost",
+            "dual-dsthost",
         ]
 
         proc = await asyncio.create_subprocess_exec(
@@ -382,4 +382,5 @@ class NftablesBackend(FirewallBackend):
         """Restore ruleset from saved snapshot."""
         if not data:
             return
-        await self._execute_nft(data.decode("utf-8"))
+        prefix = f"add table {TABLE_FAMILY} {TABLE_NAME}\ndelete table {TABLE_FAMILY} {TABLE_NAME}\n"
+        await self._execute_nft(prefix + data.decode("utf-8"))
