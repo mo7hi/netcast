@@ -1,0 +1,35 @@
+# NetCast Configuration
+# The VLC of software routers
+#
+# This is the default configuration file.
+# System-wide: /etc/netcast/config.toml
+# Per-user:    ~/.config/netcast/config.toml (overrides system)
+
+[hotspot]
+ssid = "NetCast"
+password = "netcast1234"
+band = "bg"           # "bg" = 2.4GHz, "a" = 5GHz
+channel = 0           # 0 = auto-select
+
+[network]
+source_type = "auto"  # "auto", "ethernet", "wifi", "pppoe", "usb"
+source_interface = "" # Leave empty for auto-detection
+
+[daemon]
+listen_host = "127.0.0.1"
+listen_port = 8384
+theme = "default-dark"
+log_level = "info"    # "debug", "info", "warning", "error"
+
+[fair_share]
+enabled = false
+total_bandwidth_kbps = 0  # 0 = auto-detect
+
+[captive_portal]
+enabled = true
+message = "Welcome to NetCast. Tap 'Connect' to get online."
+
+[pppoe]
+# ISP credentials — stored securely, never logged
+# username = ""
+# password = ""

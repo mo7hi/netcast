@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=NetCast
+GenericName=Internet Sharing
+Comment=Share your internet connection — the VLC of software routers
+Exec=xdg-open http://127.0.0.1:8384
+Icon=netcast
+Terminal=false
+Type=Application
+Categories=Network;System;
+Keywords=hotspot;wifi;internet;sharing;router;access-point;tethering;
+StartupNotify=false

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  NetCast PolicyKit action definitions
+  BSD-2-Clause License
+
+  Defines authorization rules for privileged NetCast operations.
+  Users in active desktop sessions can manage hotspots without password.
+  System-wide config changes require admin authentication.
+-->
+<policyconfig>
+  <vendor>NetCast</vendor>
+  <vendor_url>https://github.com/netcast/netcast</vendor_url>
+  <icon_name>netcast</icon_name>
+
+  <!-- Basic hotspot control: start/stop -->
+  <action id="net.netcast.hotspot.control">
+    <description>Manage NetCast Wi-Fi hotspot</description>
+    <message>Authentication is required to start or stop the Wi-Fi hotspot</message>
+    <defaults>
+      <!-- Active local session users can control without password -->
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <!-- Network configuration: change source, interfaces -->
+  <action id="net.netcast.network.configure">
+    <description>Configure NetCast network settings</description>
+    <message>Authentication is required to change network configuration</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <!-- PPPoE credentials: sensitive ISP credentials -->
+  <action id="net.netcast.pppoe.credentials">
+    <description>Manage PPPoE ISP credentials</description>
+    <message>Authentication is required to set or view ISP credentials</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

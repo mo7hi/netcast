@@ -1,0 +1,29 @@
+/* NetCast — Cyberpunk Theme */
+/* Terminal green, neon glow, hacker aesthetic */
+[data-theme="cyberpunk"] {
+  --rn-bg-primary: #0a0e14;
+  --rn-bg-secondary: #0d1117;
+  --rn-bg-card: #111820;
+  --rn-bg-card-hover: #151d28;
+  --rn-bg-input: #080c12;
+  --rn-accent: #39ff14;
+  --rn-accent-rgb: 57, 255, 20;
+  --rn-accent-glow: rgba(57, 255, 20, 0.25);
+  --rn-accent-hover: #5fff3f;
+  --rn-text-primary: #c5f0c0;
+  --rn-text-secondary: #5a8a55;
+  --rn-text-muted: #2d4a28;
+  --rn-success: #39ff14;
+  --rn-success-bg: rgba(57, 255, 20, 0.1);
+  --rn-danger: #ff1744;
+  --rn-danger-bg: rgba(255, 23, 68, 0.12);
+  --rn-warning: #ffc400;
+  --rn-warning-bg: rgba(255, 196, 0, 0.1);
+  --rn-border: rgba(57, 255, 20, 0.1);
+  --rn-border-radius: 4px;
+  --rn-border-radius-sm: 2px;
+  --rn-font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  --rn-shadow: 0 0 20px rgba(57, 255, 20, 0.08);
+  --rn-shadow-lg: 0 0 40px rgba(57, 255, 20, 0.12);
+  --rn-transition: 0.15s ease;
+}

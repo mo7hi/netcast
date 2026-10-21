@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netcast"
+version = "0.1.0"
+description = "The VLC of software routers — share any internet connection via Wi-Fi hotspot"
+readme = "README.md"
+license = {text = "BSD-2-Clause"}
+requires-python = ">=3.11"
+authors = [
+    {name = "NetCast Contributors"},
+]
+keywords = ["wifi", "hotspot", "router", "networking", "access-point", "internet-sharing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Networking",
+    "Topic :: Internet",
+]
+dependencies = [
+    "aiohttp>=3.9",
+    "dbus-next>=0.2.3",
+    "segno>=1.6",
+    "pluggy>=1.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+netcast = "cli.__main__:main"
+netcastd = "daemon.__main__:main"
+
+[project.entry-points."netcast"]
+# Built-in plugins are registered here
+fair_share = "daemon.builtin_plugins.fair_share:FairSharePlugin"
+captive_portal = "daemon.builtin_plugins.captive_portal:CaptivePortalPlugin"
+qr_connect = "daemon.builtin_plugins.qr_connect:QRConnectPlugin"
+status_monitor = "daemon.builtin_plugins.status_monitor:StatusMonitorPlugin"
+
+[tool.setuptools.packages.find]
+include = ["daemon*", "cli*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

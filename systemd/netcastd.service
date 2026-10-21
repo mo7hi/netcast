@@ -1,0 +1,45 @@
+# NetCast — systemd service unit
+# The VLC of software routers
+[Unit]
+Description=NetCast Daemon — Internet Sharing Service
+Documentation=https://github.com/netcast/netcast
+After=network.target dbus.service NetworkManager.service
+Wants=network.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+
+# --- PRIVILEGE MODEL: Dedicated user with Linux capabilities ---
+User=netcast
+Group=netcast
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+
+# --- Pre-flight: enable IP forwarding and load kernel modules ---
+ExecStartPre=/usr/sbin/sysctl -w net.ipv4.ip_forward=1
+ExecStartPre=-/sbin/modprobe sch_htb
+ExecStartPre=-/sbin/modprobe ifb
+
+# --- Daemon lifecycle ---
+ExecStart=/usr/bin/netcastd
+ExecStopPost=/usr/bin/netcast-cleanup
+WatchdogSec=30
+Restart=on-failure
+RestartSec=5
+
+# --- Security hardening ---
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+# --- State directory ---
+StateDirectory=netcast
+RuntimeDirectory=netcast
+
+[Install]
+WantedBy=multi-user.target
