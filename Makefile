@@ -2,10 +2,10 @@
 # BSD-2-Clause License
 #
 # Usage:
-#   make install       — Install daemon, CLI, web UI, systemd unit, desktop entry
-#   make uninstall     — Remove everything
-#   make dev           — Install in development mode with dev dependencies
 #   make web           — Build the Svelte web UI
+#   make dev           — Install in development mode with dev dependencies
+#   sudo make install  — Install daemon, CLI, web UI, systemd unit, desktop entry
+#   sudo make uninstall — Remove everything
 #   make clean         — Remove build artifacts
 #   make test          — Run tests
 
@@ -16,30 +16,45 @@ LIBDIR ?= $(PREFIX)/lib
 BINDIR ?= $(PREFIX)/bin
 STATEDIR ?= /var/lib
 
-.PHONY: all install uninstall dev web clean test setup-user
+.PHONY: all install uninstall dev web clean test setup-user check-root check-web
 
 all: web
 
-# --- Web UI Build ---
+# --- Web UI Build (runs as normal user) ---
 web:
 	@echo "Building NetCast web UI..."
-	cd web && npm install && npm run build
+	cd web && pnpm install && pnpm run build
 	@echo "Web UI built successfully."
 
-# --- Development Setup ---
+# --- Development Setup (runs as normal user) ---
 dev:
 	pip install -e ".[dev]"
-	cd web && npm install
+	cd web && pnpm install
+	@echo ""
 	@echo "Development environment ready."
-	@echo "  Daemon: python -m daemon"
-	@echo "  Web UI: cd web && npm run dev"
+	@echo "  Daemon:  sudo python -m daemon"
+	@echo "  Web UI:  cd web && pnpm run dev"
+	@echo ""
 
-# --- Installation ---
-install: web setup-user
+# --- Pre-flight checks ---
+check-root:
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Error: 'make install' must be run as root (use sudo)"; \
+		exit 1; \
+	fi
+
+check-web:
+	@if [ ! -d "web/dist" ]; then \
+		echo "Error: Web UI not built. Run 'make web' first (as normal user), then 'sudo make install'."; \
+		exit 1; \
+	fi
+
+# --- Installation (must run as root) ---
+install: check-root check-web setup-user
 	@echo "Installing NetCast..."
 
-	# Python packages
-	pip install .
+	# Python packages (install system-wide)
+	pip install --break-system-packages . 2>/dev/null || pip install .
 
 	# Web UI static files
 	install -d $(DESTDIR)$(LIBDIR)/netcast/web
@@ -63,30 +78,36 @@ install: web setup-user
 	# Icon
 	install -Dm644 assets/icons/netcast.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/netcast.svg
 
-	# Default config
+	# Default config (don't overwrite existing)
 	install -d $(DESTDIR)$(SYSCONFDIR)/netcast
 	test -f $(DESTDIR)$(SYSCONFDIR)/netcast/config.toml || \
 		install -Dm644 daemon/default_config.toml $(DESTDIR)$(SYSCONFDIR)/netcast/config.toml
 
 	# State directory
-	install -d $(DESTDIR)$(STATEDIR)/netcast
-	chown netcast:netcast $(DESTDIR)$(STATEDIR)/netcast 2>/dev/null || true
+	install -d -o netcast -g netcast $(DESTDIR)$(STATEDIR)/netcast
+
+	# Reload systemd and update icon cache
+	systemctl daemon-reload 2>/dev/null || true
+	gtk-update-icon-cache $(DESTDIR)$(PREFIX)/share/icons/hicolor 2>/dev/null || true
 
 	@echo ""
-	@echo "NetCast installed successfully!"
+	@echo "═══════════════════════════════════════════════════"
+	@echo "  ⚡ NetCast installed successfully!"
+	@echo ""
 	@echo "  Enable:  sudo systemctl enable --now netcastd"
 	@echo "  Open:    xdg-open http://127.0.0.1:8384"
+	@echo "═══════════════════════════════════════════════════"
 	@echo ""
 
-# --- Create system user ---
+# --- Create system user (idempotent) ---
 setup-user:
 	@id -u netcast >/dev/null 2>&1 || \
 		(useradd --system --no-create-home --shell /usr/sbin/nologin \
 		 --comment "NetCast daemon" netcast && \
 		 echo "Created system user 'netcast'")
 
-# --- Uninstallation ---
-uninstall:
+# --- Uninstallation (must run as root) ---
+uninstall: check-root
 	@echo "Uninstalling NetCast..."
 	-systemctl stop netcastd 2>/dev/null
 	-systemctl disable netcastd 2>/dev/null
@@ -110,4 +131,4 @@ test:
 clean:
 	rm -rf web/dist web/node_modules
 	rm -rf __pycache__ daemon/__pycache__ cli/__pycache__
-	rm -rf *.egg-info dist build
+	rm -rf *.egg-info dist build .mypy_cache .ruff_cache

@@ -29,18 +29,22 @@ PPPoE modem     ──┘
 
 ## Why NetCast?
 
-| Feature | linux-wifi-hotspot | Windows Hotspot | NetCast |
-|---------|-------------------|-----------------|---------|
-| Internet sources | Wi-Fi/Ethernet | Wi-Fi/Ethernet | **All** (+ PPPoE, USB, repeater) |
-| Client limit | Unlimited | 8 | **Unlimited** |
-| QR code connect | ✗ | ✗ | **✓** (scan & go) |
-| Per-client bandwidth | ✗ | ✗ | **✓** (Fair Share) |
-| Captive portal | ✗ | ✗ | **✓** (landing page) |
-| Crash recovery | ✗ | Partial | **✓** (4-layer Dead Man's Switch) |
-| Plugin system | ✗ | ✗ | **✓** (`pip install netcast-plugin-xxx`) |
-| Manage from phone | ✗ | ✗ | **✓** (web UI on connected device) |
-| Theme skins | ✗ | ✗ | **✓** (4 built-in + community) |
-| Runs as root | Yes | N/A | **No** (Linux capabilities) |
+| Feature | linux-wifi-hotspot | Windows Hotspot | Connectify | NetCast |
+|---------|-------------------|-----------------|------------|---------|
+| Price | Free | Free | **$40/yr** 💸 | **Free** |
+| Platform | Linux only | Windows only | Windows only | **Linux** (Win/Mac planned) |
+| Internet sources | Wi-Fi/Ethernet | Wi-Fi/Ethernet | Wi-Fi/Ethernet/3G/4G | **All** (+ PPPoE, USB, repeater) |
+| Client limit | Unlimited | 8 | Unlimited (Pro) | **Unlimited** |
+| Open source | ✓ | ✗ | ✗ | **✓** (BSD-2-Clause) |
+| QR code connect | ✗ | ✗ | ✗ | **✓** (scan & go) |
+| Per-client bandwidth | ✗ | ✗ | ✗ | **✓** (Fair Share) |
+| Captive portal | ✗ | ✗ | ✗ | **✓** (landing page) |
+| Crash recovery | ✗ | Partial | Partial | **✓** (4-layer Dead Man's Switch) |
+| Plugin system | ✗ | ✗ | ✗ | **✓** (`pip install netcast-plugin-xxx`) |
+| Manage from phone | ✗ | ✗ | ✗ | **✓** (web UI on connected device) |
+| Theme skins | ✗ | ✗ | ✗ | **✓** (4 built-in + community) |
+| Runs as root | Yes | N/A | Admin | **No** (Linux capabilities) |
+| Ad-free | ✓ | ✓ | ✗ (ads in free tier) | **✓** |
 
 ## Quick Start
 
@@ -176,7 +180,7 @@ make dev
 sudo python -m daemon
 
 # Terminal 2: Run web UI dev server
-cd web && npm run dev
+cd web && pnpm run dev
 ```
 
 ## License
