@@ -53,7 +53,7 @@ PPPoE modem     ──┘
 ```bash
 # Ubuntu / Debian
 sudo apt install hostapd dnsmasq nftables iw
-git clone https://github.com/netcast/netcast.git
+git clone https://github.com/mo7hi/netcast.git
 cd netcast
 make dev        # Development mode
 # OR
@@ -172,7 +172,7 @@ Community themes are just CSS files — distribute them as plugins.
 ## Development
 
 ```bash
-git clone https://github.com/netcast/netcast.git
+git clone https://github.com/mo7hi/netcast.git
 cd netcast
 make dev
 

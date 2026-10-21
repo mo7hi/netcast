@@ -12,7 +12,7 @@
 -->
 <policyconfig>
   <vendor>NetCast</vendor>
-  <vendor_url>https://github.com/netcast/netcast</vendor_url>
+  <vendor_url>https://github.com/mo7hi/netcast</vendor_url>
   <icon_name>netcast</icon_name>
 
   <!-- Basic hotspot control: start/stop -->

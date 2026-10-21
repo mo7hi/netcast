@@ -2,7 +2,7 @@
 # The VLC of software routers
 [Unit]
 Description=NetCast Daemon — Internet Sharing Service
-Documentation=https://github.com/netcast/netcast
+Documentation=https://github.com/mo7hi/netcast
 After=network.target dbus.service NetworkManager.service
 Wants=network.target
 
