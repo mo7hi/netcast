@@ -110,6 +110,7 @@ class NetCastPluginManager(pluggy.PluginManager):
             ("captive_portal", "daemon.builtin_plugins.captive_portal", "CaptivePortalPlugin"),
             ("qr_connect", "daemon.builtin_plugins.qr_connect", "QRConnectPlugin"),
             ("status_monitor", "daemon.builtin_plugins.status_monitor", "StatusMonitorPlugin"),
+            ("pppoe", "daemon.builtin_plugins.pppoe", "PPPoEPlugin"),
         ]
 
         loaded = 0

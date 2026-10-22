@@ -1,9 +1,0 @@
-[console_scripts]
-netcast = cli.__main__:main
-netcastd = daemon.__main__:main
-
-[netcast]
-captive_portal = daemon.builtin_plugins.captive_portal:CaptivePortalPlugin
-fair_share = daemon.builtin_plugins.fair_share:FairSharePlugin
-qr_connect = daemon.builtin_plugins.qr_connect:QRConnectPlugin
-status_monitor = daemon.builtin_plugins.status_monitor:StatusMonitorPlugin

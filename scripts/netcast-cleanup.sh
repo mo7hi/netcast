@@ -19,6 +19,8 @@ pkill -f "dnsmasq.*netcast" 2>/dev/null || true
 # 2. Delete ephemeral nftables tables (atomic, idempotent)
 nft delete table inet netcast 2>/dev/null || true
 nft delete table inet netcast_portal 2>/dev/null || true
+iw dev netcast0 del 2>/dev/null || true
+systemctl stop netcast-pppoe.service 2>/dev/null || true
 
 # 3. Remove traffic shaping qdiscs
 for iface in /var/lib/netcast/managed_ifaces/*; do

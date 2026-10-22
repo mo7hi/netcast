@@ -179,6 +179,23 @@ class CaptivePortalConfig:
 
 
 @dataclass
+class PPPoEConfig:
+    """ISP credentials for PPPoE upstream."""
+
+    username: str = ""
+    password: str = ""
+    mtu: int = 1492
+
+    def validate(self) -> None:
+        """Validate PPPoE settings."""
+        for what, val in (("username", self.username), ("password", self.password)):
+            if len(val) > 255 or any(ord(c) < 32 or ord(c) == 127 for c in val):
+                raise ConfigError(f"Invalid PPPoE {what}: max 255 chars, no control characters.")
+        if not (576 <= self.mtu <= 1500):
+            raise ConfigError(f"Invalid PPPoE mtu {self.mtu}: must be 576..1500.")
+
+
+@dataclass
 class NetCastConfig:
     """Complete NetCast configuration structure."""
 
@@ -187,6 +204,7 @@ class NetCastConfig:
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     fair_share: FairShareConfig = field(default_factory=FairShareConfig)
     captive_portal: CaptivePortalConfig = field(default_factory=CaptivePortalConfig)
+    pppoe: PPPoEConfig = field(default_factory=PPPoEConfig)
 
     def validate(self) -> None:
         """Validate all configuration sections."""
@@ -195,6 +213,7 @@ class NetCastConfig:
         self.daemon.validate()
         self.fair_share.validate()
         self.captive_portal.validate()
+        self.pppoe.validate()
 
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -248,6 +267,7 @@ def parse_config_dict(data: dict[str, Any]) -> NetCastConfig:
     daemon_data = data.get("daemon", {})
     fair_share_data = data.get("fair_share", {})
     captive_portal_data = data.get("captive_portal", {})
+    pppoe_data = data.get("pppoe", {})
 
     cfg = NetCastConfig(
         hotspot=HotspotConfig(**hotspot_data),
@@ -255,6 +275,7 @@ def parse_config_dict(data: dict[str, Any]) -> NetCastConfig:
         daemon=DaemonConfig(**daemon_data),
         fair_share=FairShareConfig(**fair_share_data),
         captive_portal=CaptivePortalConfig(**captive_portal_data),
+        pppoe=PPPoEConfig(**pppoe_data),
     )
     cfg.validate()
     return cfg

@@ -67,6 +67,7 @@ install: check-root check-web setup-user
 
 	# systemd service
 	install -Dm644 systemd/netcastd.service $(DESTDIR)$(SYSCONFDIR)/systemd/system/netcastd.service
+	install -Dm644 systemd/netcast-pppoe.service $(DESTDIR)$(SYSCONFDIR)/systemd/system/netcast-pppoe.service
 
 	# D-Bus policy
 	install -Dm644 dbus/net.netcast.Daemon.conf $(DESTDIR)$(SYSCONFDIR)/dbus-1/system.d/net.netcast.Daemon.conf
@@ -74,6 +75,7 @@ install: check-root check-web setup-user
 	# PolicyKit rules
 	install -Dm644 polkit/net.netcast.policy $(DESTDIR)$(PREFIX)/share/polkit-1/actions/net.netcast.policy
 	install -Dm644 polkit/50-netcast-nm.rules $(DESTDIR)$(SYSCONFDIR)/polkit-1/rules.d/50-netcast-nm.rules
+	install -Dm644 polkit/51-netcast-pppoe.rules $(DESTDIR)$(SYSCONFDIR)/polkit-1/rules.d/51-netcast-pppoe.rules
 
 	# Desktop entry
 	install -Dm644 packaging/netcast.desktop $(DESTDIR)$(PREFIX)/share/applications/netcast.desktop
@@ -118,9 +120,11 @@ uninstall: check-root
 	rm -rf $(DESTDIR)$(LIBDIR)/netcast
 	rm -f $(DESTDIR)$(BINDIR)/netcast-cleanup
 	rm -f $(DESTDIR)$(SYSCONFDIR)/systemd/system/netcastd.service
+	rm -f $(DESTDIR)$(SYSCONFDIR)/systemd/system/netcast-pppoe.service
 	rm -f $(DESTDIR)$(SYSCONFDIR)/dbus-1/system.d/net.netcast.Daemon.conf
 	rm -f $(DESTDIR)$(PREFIX)/share/polkit-1/actions/net.netcast.policy
 	rm -f $(DESTDIR)$(SYSCONFDIR)/polkit-1/rules.d/50-netcast-nm.rules
+	rm -f $(DESTDIR)$(SYSCONFDIR)/polkit-1/rules.d/51-netcast-pppoe.rules
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/netcast.desktop
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/netcast.svg
 	-systemctl daemon-reload

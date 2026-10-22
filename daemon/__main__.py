@@ -48,6 +48,7 @@ from aiohttp import web
 from daemon.api.web import create_app
 from daemon.config import NetCastConfig, load_config
 from daemon.plugins import NetCastPluginManager, get_plugin_manager
+from daemon.persist import apply_overlay
 from daemon.state import DaemonState
 from daemon.watchdog import DeadMansSwitch
 
@@ -227,6 +228,7 @@ async def run_daemon(config_path: Path | str | None = None) -> None:
 
     # 3. Load configuration
     config: NetCastConfig = load_config(config_path)
+    config = apply_overlay(config)  # settings saved from the web UI
 
     # 4. Initialize pluggy PluginManager
     logger.info("Initializing NetCast plugin manager...")

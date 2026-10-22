@@ -1,7 +1,8 @@
 <script>
-  import { page, interfaces, loading, config } from '../lib/stores.js';
-  import { getInterfaces, startHotspot, getPreflight } from '../lib/api.js';
+  import { page, interfaces, loading, config, wizardDraft } from '../lib/stores.js';
+  import { getInterfaces, startHotspot, getPreflight, setPPPoE } from '../lib/api.js';
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
 
   let sourceType = 'auto';
   let ssid = 'NetCast';
@@ -10,13 +11,20 @@
   let ifaces = { wifi: [], ethernet: [], usb: [] };
   let selectedSource = '';
   let step = 1;
+  let pppoeUser = '';
+  let pppoePass = '';
+
+  // Restore entries if we came back from the pre-flight page
+  const draft = get(wizardDraft);
+  if (draft) ({ sourceType, ssid, password, band, selectedSource, step, pppoeUser } = draft);
+  $: wizardDraft.set({ sourceType, ssid, password, band, selectedSource, step, pppoeUser });
 
   onMount(async () => {
     try {
       ifaces = await getInterfaces();
       interfaces.set(ifaces);
-      if (ifaces.ethernet.length) { sourceType = 'ethernet'; selectedSource = ifaces.ethernet[0]; }
-      else if (ifaces.usb.length) { sourceType = 'usb'; selectedSource = ifaces.usb[0]; }
+      if (!draft && ifaces.ethernet.length) { sourceType = 'ethernet'; selectedSource = ifaces.ethernet[0]; }
+      else if (!draft && ifaces.usb.length) { sourceType = 'usb'; selectedSource = ifaces.usb[0]; }
     } catch {}
   });
 
@@ -31,12 +39,14 @@
     loading.set(true);
     try {
       const cfg = { ssid, password, band, source_type: sourceType, source_interface: selectedSource };
-      const pf = await getPreflight();
+      if (sourceType === 'pppoe') await setPPPoE(pppoeUser, pppoePass);
+      const pf = await getPreflight({ band, source_type: sourceType, source_interface: selectedSource });
       if (!pf.passed) {
         page.set('preflight');
         return;
       }
       await startHotspot(cfg);
+      wizardDraft.set(null);
       page.set('dashboard');
     } catch (e) {
       alert('Failed: ' + e.message);
@@ -96,6 +106,18 @@
           <button class="gen-btn" on:click={generatePassword}>🎲 Generate</button>
         </div>
       </div>
+
+      {#if sourceType === 'pppoe'}
+        <div class="form-group">
+          <label for="pppoe-user">ISP username</label>
+          <input id="pppoe-user" type="text" bind:value={pppoeUser} autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label for="pppoe-pass">ISP password</label>
+          <input id="pppoe-pass" type="password" bind:value={pppoePass} autocomplete="off"
+            style="width:100%;padding:0.75rem 1rem;background:var(--rn-bg-input);border:1px solid var(--rn-border);border-radius:var(--rn-border-radius-sm);color:var(--rn-text-primary)" />
+        </div>
+      {/if}
 
       <div class="form-group">
         <label>Band</label>

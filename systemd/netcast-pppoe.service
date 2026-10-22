@@ -1,0 +1,17 @@
+# NetCast PPPoE uplink — privileged helper (started by netcastd via polkit rule).
+# Runs as root because pppd only allows the 'plugin' option for root. The helper
+# validates a small JSON request and generates the pppd options itself.
+[Unit]
+Description=NetCast PPPoE uplink (privileged helper)
+PartOf=netcastd.service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/
+RuntimeDirectory=netcast-pppoe
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/python3 -I -m daemon.pppoe_helper /run/netcast/pppoe.json
+Restart=no
+ProtectHome=yes
+PrivateTmp=yes

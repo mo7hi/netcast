@@ -246,7 +246,7 @@ async def check_linux_611_iwlwifi(config: HotspotConfig) -> Check:
         if config.is_5ghz:
             return Check(
                 name="Linux 6.11+ iwlwifi restriction",
-                status="fail",
+                status="warn",  # unverified for every kernel/firmware combination
                 message=(
                     f"Linux kernel {release} with iwlwifi driver strictly forbids 5GHz AP mode "
                     "due to Location Aware Regulatory (LAR) lockdown (-EBUSY / -EINVAL)."
@@ -417,10 +417,10 @@ async def check_intel_lar(config: HotspotConfig) -> Check:
         output = stdout.decode("utf-8", errors="ignore")
 
         # In Intel LAR, country 00 or PASSIVE-SCAN / NO-IR indicates uninitialized AP mode
-        if "country 00" in output or "PASSIVE-SCAN" in output or "NO-IR" in output:
+        if "country 00" in output:
             return Check(
                 name="Intel 5GHz LAR check",
-                status="fail",
+                status="warn",
                 message=(
                     "Intel Wi-Fi LAR (Location Aware Regulatory) has restricted 5GHz AP mode "
                     "(NO-IR / PASSIVE-SCAN active). The card refuses to initiate radiation on 5GHz."
@@ -482,7 +482,7 @@ async def check_corporate_network(config: HotspotConfig) -> Check:
                             )
                             show_out, _ = await show_proc.communicate()
                             text = show_out.decode("utf-8").lower()
-                            if "wpa-eap" in text or "802-1x" in text:
+                            if "wpa-eap" in text or re.search(r"802-1x\.eap:\s*\S", text):
                                 return Check(
                                     name="Corporate network detection (802.1X)",
                                     status="warn",

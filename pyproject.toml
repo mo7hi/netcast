@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -51,6 +51,7 @@ fair_share = "daemon.builtin_plugins.fair_share:FairSharePlugin"
 captive_portal = "daemon.builtin_plugins.captive_portal:CaptivePortalPlugin"
 qr_connect = "daemon.builtin_plugins.qr_connect:QRConnectPlugin"
 status_monitor = "daemon.builtin_plugins.status_monitor:StatusMonitorPlugin"
+pppoe = "daemon.builtin_plugins.pppoe:PPPoEPlugin"
 
 [tool.setuptools.packages.find]
 include = ["daemon*", "cli*"]

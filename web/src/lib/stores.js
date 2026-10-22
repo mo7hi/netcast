@@ -11,3 +11,5 @@ export const logs = writable([]);
 export const theme = writable('default-dark');
 export const error = writable('');
 export const loading = writable(false);
+export const wizardDraft = writable(null);    // keeps Wizard entries across pages
+export const authState = writable('checking'); // checking | ok | login | disabled

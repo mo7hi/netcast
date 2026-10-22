@@ -1,16 +1,19 @@
 <script>
-  import { page, preflight as preflightStore, loading } from '../lib/stores.js';
+  import { page, preflight as preflightStore, loading, wizardDraft } from '../lib/stores.js';
   import { getPreflight } from '../lib/api.js';
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
 
   let checks = [];
   let passed = false;
   let running = true;
 
-  onMount(async () => {
+  async function run() {
+    running = true;
     loading.set(true);
     try {
-      const result = await getPreflight();
+      const d = get(wizardDraft) || {};
+      const result = await getPreflight({ band: d.band, source_type: d.sourceType, source_interface: d.selectedSource });
       checks = result.checks || [];
       passed = result.passed;
       preflightStore.set(result);
@@ -20,7 +23,8 @@
       running = false;
       loading.set(false);
     }
-  });
+  }
+  onMount(run);
 
   function statusIcon(s) {
     if (s === 'pass') return '✓';
@@ -73,7 +77,7 @@
           <span class="fail-icon">✗</span>
           Some checks failed. Fix the issues above before continuing.
         </div>
-        <button class="secondary-btn" on:click={() => window.location.reload()}>Re-run Checks</button>
+        <button class="secondary-btn" on:click={run}>Re-run Checks</button>
         <button class="text-btn" on:click={() => page.set('wizard')}>← Back to Wizard</button>
       {/if}
     </div>

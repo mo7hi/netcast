@@ -1,14 +1,13 @@
 <script>
   import { theme, config as configStore } from '../lib/stores.js';
-  import { getConfig, updateConfig } from '../lib/api.js';
-  import { setTheme, getThemes } from '../lib/theme.js';
+  import { getConfig, updateConfig, setAdminPassword } from '../lib/api.js';
+  import { setTheme, themeList } from '../lib/theme.js';
   import { onMount } from 'svelte';
 
   let cfg = {};
   let saved = false;
   let currentTheme;
   theme.subscribe(v => currentTheme = v);
-  const themes = getThemes();
 
   const themeLabels = {
     'default-dark': { name: 'Midnight', icon: '🌙', desc: 'Deep blue with cyan glow' },
@@ -20,6 +19,13 @@
   onMount(async () => {
     try { cfg = await getConfig(); configStore.set(cfg); } catch {}
   });
+
+  let adminPw = '';
+  let adminMsg = '';
+  async function savePassword() {
+    try { await setAdminPassword(adminPw); adminMsg = 'Remote password saved.'; adminPw = ''; }
+    catch (e) { adminMsg = e.message; }
+  }
 
   async function save() {
     try {
@@ -36,7 +42,7 @@
   <section class="section">
     <h2>🎨 Theme</h2>
     <div class="theme-grid">
-      {#each themes as t}
+      {#each $themeList as t}
         <button
           class="theme-card"
           class:selected={currentTheme === t}
@@ -110,6 +116,17 @@
         <textarea id="s-portal-msg" bind:value={cfg.captive_portal_message} rows="2"></textarea>
       </div>
     {/if}
+  </section>
+
+  <section class="section">
+    <h2>🔐 Remote Access</h2>
+    <div class="form-group">
+      <label for="s-admin-pw">Admin password (to manage NetCast from another device)</label>
+      <input id="s-admin-pw" type="password" bind:value={adminPw} minlength="8" />
+      <small>At least 8 characters. Without one, only this machine can manage NetCast.</small>
+    </div>
+    <button class="save-btn" on:click={savePassword} disabled={adminPw.length < 8}>Set password</button>
+    {#if adminMsg}<small style="display:block;margin-top:0.5rem">{adminMsg}</small>{/if}
   </section>
 
   <div class="save-bar">

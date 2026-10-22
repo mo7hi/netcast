@@ -81,7 +81,7 @@ netcast stop
 ```
  ┌──────────────────────────────────────────┐
  │  Web Browser (or phone on hotspot)       │
- │  Svelte UI — 5KB gzipped, zero runtime  │
+ │  Svelte UI — small prebuilt bundle      │
  └──────────────┬───────────────────────────┘
                 │ REST + WebSocket
  ┌──────────────┴───────────────────────────┐

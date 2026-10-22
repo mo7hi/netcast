@@ -3,11 +3,38 @@
 const BASE = '';
 let token = '';
 
+export const getToken = () => token;
+
+/** Loopback UIs get the master token; remote UIs reuse a saved login session. */
 export async function fetchToken() {
   try {
     const r = await fetch('/api/token');
-    if (r.ok) token = (await r.json()).token || '';
-  } catch { /* portal mode — no token needed */ }
+    if (r.ok) {
+      token = (await r.json()).token || '';
+      if (token) return true;
+    }
+  } catch { /* ignore */ }
+  const saved = sessionStorage.getItem('netcast-token');
+  if (saved) {
+    token = saved;
+    try { await api('GET', '/api/status'); return true; }
+    catch { token = ''; sessionStorage.removeItem('netcast-token'); }
+  }
+  return false;
+}
+
+export const authStatus = () => fetch('/api/auth/status').then((r) => r.json());
+
+export async function login(password) {
+  const r = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `Login failed (${r.status})`);
+  token = d.token;
+  sessionStorage.setItem('netcast-token', token);
 }
 
 function headers() {
@@ -26,7 +53,7 @@ async function api(method, path, body) {
 
 // --- Adapters: server schema <-> what the pages expect -----------------------
 
-const VIRTUAL = /^(lo|docker|br-|br\d|veth|virbr|tun|tap|wg|tailscale|ifb)/;
+const VIRTUAL = /^(lo|docker|br-|br\d|veth|virbr|tun|tap|wg|tailscale|ifb|netcast|ppp)/;
 const USB = /^(usb|rndis|enx|enp\w+u\w+)/;
 
 function groupInterfaces(list) {
@@ -82,13 +109,22 @@ function nestConfig(f) {
 export const getStatus = () => api('GET', '/api/status');
 export const getClients = () => api('GET', '/api/clients');
 export const getInterfaces = async () => groupInterfaces(await api('GET', '/api/interfaces'));
-export const getPreflight = async () => adaptPreflight(await api('GET', '/api/preflight'));
+export const getPreflight = async (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+  return adaptPreflight(await api('GET', '/api/preflight' + (q ? `?${q}` : '')));
+};
 export const getSkins = () => api('GET', '/api/skins');
+export const getSkinCss = (id) =>
+  fetch(`/api/skins/${encodeURIComponent(id)}`, { headers: headers() }).then((r) => r.text());
+export const getUiTabs = () => api('GET', '/api/ui/tabs');
 export const getConfig = async () => flattenConfig(await api('GET', '/api/config'));
 export const getQR = () => fetch('/api/qr', { headers: headers() }).then((r) => r.text());
 export const startHotspot = (cfg) => api('POST', '/api/hotspot/start', cfg);
 export const stopHotspot = () => api('POST', '/api/hotspot/stop');
 export const updateConfig = async (cfg) => flattenConfig(await api('PUT', '/api/config', nestConfig(cfg)));
+export const setPPPoE = (username, password) =>
+  api('PUT', '/api/config', { pppoe: { username, password } });
+export const setAdminPassword = (password) => api('PUT', '/api/admin-password', { password });
 
 /** WebSocket for real-time events */
 export function connectWS(onEvent) {

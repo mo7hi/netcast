@@ -41,6 +41,7 @@ import json
 import logging
 import ipaddress
 import os
+import re
 import shutil
 from collections.abc import Callable
 from urllib.parse import urlsplit
@@ -582,14 +583,16 @@ async def session_auth_middleware(
     if (path.startswith("/api/") or path == "/ws") and not _host_is_safe(request):
         return web.json_response({"error": "Forbidden host"}, status=403)
 
-    # Token bootstrap: handler itself restricts this to loopback peers
-    if path == "/api/token":
+    # Public bootstrap endpoints (each handler enforces its own rules)
+    if path in ("/api/token", "/api/login", "/api/auth/status"):
         return await handler(request)
 
     # Protected REST API routes require valid token
     if path.startswith("/api/"):
         token = read_session_token(request.app)
-        provided_token = request.headers.get("X-NetCast-Token")
+        provided_token = request.headers.get("X-NetCast-Token") or (
+            request.query.get("token") if request.method == "GET" else None
+        )
 
         if not token:
             logger.warning("Request to %s denied: Daemon session token not configured", path)
@@ -598,7 +601,7 @@ async def session_auth_middleware(
                 status=401,
             )
 
-        if not provided_token or not hmac.compare_digest(provided_token.strip(), token.strip()):
+        if not provided_token or not _token_ok(request.app, provided_token, token):
             logger.warning("Unauthorized request to %s: Invalid or missing X-NetCast-Token", path)
             return web.json_response(
                 {"error": "Unauthorized", "message": "Missing or invalid X-NetCast-Token header"},
@@ -612,7 +615,7 @@ async def session_auth_middleware(
         origin = request.headers.get("Origin")
         if origin and urlsplit(origin).netloc != request.host:
             return web.json_response({"error": "Forbidden origin"}, status=403)
-        if not token or not provided or not hmac.compare_digest(provided.strip(), token.strip()):
+        if not token or not provided or not _token_ok(request.app, provided, token):
             return web.json_response({"error": "Unauthorized"}, status=401)
 
     return await handler(request)
@@ -652,6 +655,144 @@ async def handle_get_token(request: web.Request) -> web.Response:
     return web.json_response({"token": token}, headers={"Cache-Control": "no-store"})
 
 
+def _is_loopback(request: web.Request) -> bool:
+    return request.remote in ("127.0.0.1", "::1")
+
+
+def _token_ok(app: web.Application, provided: str, master: str | None) -> bool:
+    """Accept the master token (local UI) or a login session token (remote UI)."""
+    candidate = provided.strip()
+    if master and hmac.compare_digest(candidate, master.strip()):
+        return True
+    auth = app.get("admin_auth")
+    return bool(auth and auth.valid_session(candidate))
+
+
+_PLUGIN_CSP = (
+    "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; "
+    "style-src 'unsafe-inline'; img-src data:"
+)
+
+
+@web.middleware
+async def plugin_csp_middleware(request: web.Request, handler: Callable[..., Any]) -> Any:
+    """Sandbox plugin-provided pages: scripts run, but with no network and no API access."""
+    response = await handler(request)
+    if request.path.startswith(("/api/ui/tab/", "/api/plugins/")):
+        response.headers["Content-Security-Policy"] = _PLUGIN_CSP
+    return response
+
+
+BUILTIN_SKINS = [
+    {"id": "default-dark", "name": "Midnight", "builtin": True},
+    {"id": "panic", "name": "Panic Mode", "builtin": True},
+    {"id": "cyberpunk", "name": "Cyberpunk", "builtin": True},
+    {"id": "retro-95", "name": "Retro 95", "builtin": True},
+]
+_SKIN_ID = re.compile(r"^custom-[a-z0-9_-]{1,40}$")
+_TAB_ID = re.compile(r"^[a-z0-9_-]{1,32}$")
+
+
+def _plugin_skins(daemon_state: Any) -> dict[str, dict[str, str]]:
+    """Normalize plugin skins to {id: {name, css}}; ids are forced into the custom- namespace."""
+    out: dict[str, dict[str, str]] = {}
+    for raw_id, spec in (getattr(daemon_state, "skins", None) or {}).items():
+        sid = str(raw_id) if str(raw_id).startswith("custom-") else f"custom-{raw_id}"
+        if not _SKIN_ID.fullmatch(sid):
+            continue
+        try:
+            if isinstance(spec, str):
+                spec = {"css": spec}
+            css = spec.get("css") or Path(spec["path"]).read_text(encoding="utf-8")
+        except (KeyError, OSError, AttributeError):
+            continue
+        out[sid] = {"name": str(spec.get("name") or sid), "css": css}
+    return out
+
+
+def _skin_list(daemon_state: Any) -> list[dict[str, Any]]:
+    custom = [
+        {"id": sid, "name": s["name"], "builtin": False}
+        for sid, s in _plugin_skins(daemon_state).items()
+    ]
+    return [*BUILTIN_SKINS, *custom]
+
+
+def _plugin_tabs(daemon_state: Any) -> list[dict[str, Any]]:
+    tabs: list[dict[str, Any]] = []
+    for tab in getattr(daemon_state, "ui_tabs", None) or []:
+        tid = str(tab.get("id", ""))
+        if not _TAB_ID.fullmatch(tid):
+            continue
+        if tab.get("html"):
+            src = f"/api/ui/tab/{tid}"
+        elif str(tab.get("endpoint", "")).startswith("/api/plugins/"):
+            src = str(tab["endpoint"])
+        else:
+            continue
+        tabs.append({"id": tid, "title": str(tab.get("title", tid)),
+                     "icon": str(tab.get("icon", "")), "src": src, "_html": tab.get("html")})
+    return tabs
+
+
+async def handle_auth_status(request: web.Request) -> web.Response:
+    """GET /api/auth/status - Tell the UI which sign-in method applies (no secrets)."""
+    return web.json_response({
+        "loopback": _is_loopback(request),
+        "admin_password_set": request.app["admin_auth"].is_set(),
+    })
+
+
+async def handle_login(request: web.Request) -> web.Response:
+    """POST /api/login - Exchange the admin password for a session token."""
+    try:
+        password = str((await request.json()).get("password", ""))
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+    try:
+        token = request.app["admin_auth"].login(request.remote or "unknown", password)
+    except PermissionError as exc:
+        return web.json_response({"error": str(exc)}, status=429)
+    if token is None:
+        return web.json_response({"error": "Wrong password"}, status=401)
+    return web.json_response({"token": token}, headers={"Cache-Control": "no-store"})
+
+
+async def handle_put_admin_password(request: web.Request) -> web.Response:
+    """PUT /api/admin-password - Set the remote-management password (token required)."""
+    try:
+        password = str((await request.json()).get("password", ""))
+        request.app["admin_auth"].set_password(password)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    except OSError as exc:
+        return web.json_response({"error": f"Could not save password: {exc}"}, status=500)
+    return web.json_response({"success": True})
+
+
+async def handle_ui_tabs(request: web.Request) -> web.Response:
+    """GET /api/ui/tabs - Plugin-registered UI tabs."""
+    tabs = [{k: v for k, v in t.items() if k != "_html"}
+            for t in _plugin_tabs(request.app["daemon_state"])]
+    return web.json_response(tabs)
+
+
+async def handle_ui_tab(request: web.Request) -> web.Response:
+    """GET /api/ui/tab/{id} - HTML of an inline plugin tab (served under a strict CSP)."""
+    for tab in _plugin_tabs(request.app["daemon_state"]):
+        if tab["id"] == request.match_info["tab_id"] and tab["_html"]:
+            return web.Response(text=str(tab["_html"]), content_type="text/html")
+    raise web.HTTPNotFound()
+
+
+async def handle_skin_css(request: web.Request) -> web.Response:
+    """GET /api/skins/{id} - CSS of a plugin-registered skin."""
+    skin = _plugin_skins(request.app["daemon_state"]).get(request.match_info["skin_id"])
+    if skin is None:
+        raise web.HTTPNotFound()
+    return web.Response(text=skin["css"], content_type="text/css")
+
+
 async def handle_get_status(request: web.Request) -> web.Response:
     """GET /api/status - Return current operational status."""
     daemon_state = request.app["daemon_state"]
@@ -671,7 +812,7 @@ async def handle_get_preflight(request: web.Request) -> web.Response:
     daemon_state = request.app["daemon_state"]
 
     if hasattr(daemon_state, "run_preflight"):
-        res = daemon_state.run_preflight()
+        res = daemon_state.run_preflight(dict(request.query))
         result = await res if asyncio.iscoroutine(res) else res
     else:
         result = await run_preflight_checks()
@@ -819,7 +960,7 @@ async def handle_get_skins(request: web.Request) -> web.Response:
 
     return web.json_response({
         "current": current_theme,
-        "skins": DEFAULT_SKINS,
+        "skins": _skin_list(daemon_state),
     })
 
 
@@ -1254,12 +1395,15 @@ def create_app(
 
         daemon_state = _DaemonStateProxy(config, session_token)
 
-    app = web.Application(middlewares=[session_auth_middleware])
+    app = web.Application(middlewares=[session_auth_middleware, plugin_csp_middleware])
     app["daemon_state"] = daemon_state
     app["config"] = config
     if session_token:
         app["session_token"] = session_token
     app["websockets"] = set()
+    from daemon.auth import AdminAuth
+
+    app["admin_auth"] = AdminAuth()
 
     # Locate static web UI distribution
     web_dist_dir = locate_web_dist_dir()
@@ -1276,6 +1420,12 @@ def create_app(
 
     # Register REST API routes
     app.router.add_get("/api/token", handle_get_token)
+    app.router.add_get("/api/auth/status", handle_auth_status)
+    app.router.add_post("/api/login", handle_login)
+    app.router.add_put("/api/admin-password", handle_put_admin_password)
+    app.router.add_get("/api/ui/tabs", handle_ui_tabs)
+    app.router.add_get("/api/ui/tab/{tab_id}", handle_ui_tab)
+    app.router.add_get("/api/skins/{skin_id}", handle_skin_css)
     app.router.add_get("/api/health", handle_get_status)
     app.router.add_get("/api/status", handle_get_status)
     app.router.add_get("/api/clients", handle_get_clients)

@@ -1,7 +1,0 @@
-pyproject.toml
-netcast.egg-info/PKG-INFO
-netcast.egg-info/SOURCES.txt
-netcast.egg-info/dependency_links.txt
-netcast.egg-info/entry_points.txt
-netcast.egg-info/requires.txt
-netcast.egg-info/top_level.txt

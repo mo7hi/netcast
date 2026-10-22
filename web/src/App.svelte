@@ -1,30 +1,37 @@
 <script>
   import { onMount } from 'svelte';
-  import { page, status, clients, logs, error } from './lib/stores.js';
-  import { fetchToken, getStatus, connectWS } from './lib/api.js';
-  import { loadSavedTheme } from './lib/theme.js';
+  import { page, status, clients, logs, error, authState } from './lib/stores.js';
+  import { fetchToken, authStatus, getStatus, getUiTabs, connectWS } from './lib/api.js';
+  import { loadSavedTheme, loadCustomSkins } from './lib/theme.js';
   import Wizard from './pages/Wizard.svelte';
   import Preflight from './pages/Preflight.svelte';
   import Dashboard from './pages/Dashboard.svelte';
   import Settings from './pages/Settings.svelte';
   import Portal from './pages/Portal.svelte';
+  import Login from './pages/Login.svelte';
+  import PluginTab from './pages/PluginTab.svelte';
 
   let currentPage;
   page.subscribe(v => currentPage = v);
 
-  onMount(async () => {
-    loadSavedTheme();
-    await fetchToken();
+  let tabs = [];
+  let stopWS = () => {};
+  const isPortal = window.location.pathname.startsWith('/portal');
+
+  async function init() {
     try {
       const s = await getStatus();
       status.set(s);
       if (s.active) page.set('dashboard');
     } catch {}
+    try { tabs = await getUiTabs(); } catch {}
+    loadCustomSkins();
 
-    connectWS((event) => {
+    stopWS();
+    stopWS = connectWS((event) => {
       if (event.type === 'status_update') status.set(event.data);
       else if (event.type === 'client_connected') {
-        clients.update(c => [...c, event.data]);
+        clients.update(c => c.some(x => x.mac === event.data.mac) ? c : [...c, event.data]);
       }
       else if (event.type === 'client_disconnected') {
         clients.update(c => c.filter(x => x.mac !== event.data.mac));
@@ -36,15 +43,48 @@
         error.set(event.data.message);
       }
     });
+  }
+
+  async function boot() {
+    if (await fetchToken()) {
+      authState.set('ok');
+      await init();
+      return;
+    }
+    try {
+      const a = await authStatus();
+      authState.set(a.admin_password_set ? 'login' : 'disabled');
+    } catch {
+      authState.set('disabled');
+    }
+  }
+
+  function onLoggedIn() {
+    authState.set('ok');
+    init();
+  }
+
+  onMount(() => {
+    loadSavedTheme();
+    if (!isPortal) boot();
+    return () => stopWS();
   });
 
   function navigate(p) { page.set(p); }
-
-  const isPortal = window.location.pathname.startsWith('/portal');
 </script>
 
 {#if isPortal}
   <Portal />
+{:else if $authState === 'checking'}
+  <div class="center-msg">Connecting…</div>
+{:else if $authState === 'login'}
+  <Login on:success={onLoggedIn} />
+{:else if $authState === 'disabled'}
+  <div class="center-msg">
+    Remote management is disabled.<br />
+    Open NetCast on this machine (http://127.0.0.1:8384) and set an admin password in
+    Settings → Remote Access.
+  </div>
 {:else}
   <div class="app-shell">
     <nav class="sidebar">
@@ -62,6 +102,11 @@
         <button class="nav-btn" class:active={currentPage === 'settings'} on:click={() => navigate('settings')}>
           <span class="nav-icon">⚙️</span><span>Settings</span>
         </button>
+        {#each tabs as t}
+          <button class="nav-btn" class:active={currentPage === 'plugin:' + t.id} on:click={() => navigate('plugin:' + t.id)}>
+            <span class="nav-icon">{t.icon || '🧩'}</span><span>{t.title}</span>
+          </button>
+        {/each}
       </div>
       <div class="nav-footer">
         <span class="version">v0.1.0</span>
@@ -83,6 +128,12 @@
         <Dashboard />
       {:else if currentPage === 'settings'}
         <Settings />
+      {:else}
+        {#each tabs as t}
+          {#if currentPage === 'plugin:' + t.id}
+            <PluginTab tab={t} />
+          {/if}
+        {/each}
       {/if}
     </main>
   </div>
@@ -101,6 +152,17 @@
     color: var(--rn-text-primary, #e0e0e0);
     min-height: 100vh;
     overflow-x: hidden;
+  }
+
+  .center-msg {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2rem;
+    line-height: 1.6;
+    color: var(--rn-text-secondary, #8888aa);
   }
 
   .app-shell {

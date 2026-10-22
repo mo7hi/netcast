@@ -53,6 +53,7 @@ class NftablesBackend(FirewallBackend):
         self._gateway_ip: str = ""
         self._captive_portal_active: bool = False
         self._captive_web_port: int = 8080
+        self._plugin_rules: list[str] = []
 
     async def _execute_nft(self, rules: str) -> None:
         """Apply rules atomically via 'nft -f -' using stdin.
@@ -179,11 +180,37 @@ class NftablesBackend(FirewallBackend):
         lines.extend(
             [
                 "    }",
+                "",
+                "    chain plugin_rules {",
+                "        type filter hook forward priority filter - 1; policy accept;",
+                *[f"        {rule}" for rule in self._plugin_rules],
+                "    }",
                 "}",
                 "",
             ]
         )
         return "\n".join(lines)
+
+    def add_plugin_rule(self, rule: str) -> None:
+        """Queue a rule for the dedicated ``plugin_rules`` forward chain.
+
+        Called from the ``register_firewall_rules`` plugin hook; applied atomically
+        together with the rest of the ruleset by ``apply_plugin_rules``.
+        """
+        if not isinstance(rule, str) or not rule.strip() or any(c in rule for c in "\r\n;"):
+            raise ValueError("Plugin firewall rule must be a single nft rule without ';' or newlines")
+        self._plugin_rules.append(rule.strip())
+
+    async def apply_plugin_rules(self) -> None:
+        """Re-apply the ruleset including plugin rules; drop them if nft rejects them."""
+        if not self._plugin_rules or not self._source_iface:
+            return
+        try:
+            await self._execute_nft(self._build_ruleset())
+        except RuntimeError:
+            logger.error("Plugin firewall rules rejected by nft; discarding them")
+            self._plugin_rules.clear()
+            await self._execute_nft(self._build_ruleset())
 
     async def setup_nat(self, source_iface: str, ap_iface: str, gateway_ip: str) -> None:
         """Configure IPv4 forwarding, masquerading, and base routing between interfaces.
@@ -232,6 +259,7 @@ class NftablesBackend(FirewallBackend):
         self._ap_iface = ""
         self._gateway_ip = ""
         self._captive_portal_active = False
+        self._plugin_rules = []
 
     async def setup_mss_clamp(self) -> None:
         """Ensure TCP MSS clamping rule is active in the forward chain."""
