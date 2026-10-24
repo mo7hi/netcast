@@ -1,216 +1,185 @@
 <script>
-  import { theme, config as configStore } from '../lib/stores.js';
-  import { getConfig, updateConfig, setAdminPassword } from '../lib/api.js';
-  import { setTheme, themeList } from '../lib/theme.js';
   import { onMount } from 'svelte';
+  import { platform, theme, say } from '../lib/stores.js';
+  import { getConfig, saveConfig, getRemote, getRemoteQR, setAdminPassword } from '../lib/api.js';
+  import { themeList, setTheme } from '../lib/theme.js';
+  import { randomPassword, copy } from '../lib/format.js';
 
-  let cfg = {};
-  let saved = false;
-  let currentTheme;
-  theme.subscribe(v => currentTheme = v);
-
-  const themeLabels = {
-    'default-dark': { name: 'Midnight', icon: '🌙', desc: 'Deep blue with cyan glow' },
-    'panic': { name: 'Panic Mode', icon: '🚨', desc: 'Max contrast, giant text' },
-    'cyberpunk': { name: 'Cyberpunk', icon: '💚', desc: 'Terminal green, hacker vibes' },
-    'retro-95': { name: 'Retro 95', icon: '🖥️', desc: 'Classic Windows aesthetic' },
-  };
-
-  onMount(async () => {
-    try { cfg = await getConfig(); configStore.set(cfg); } catch {}
-  });
-
+  let cfg = null;
+  let saving = false;
+  let remote = null;
+  let remoteUrl = '';
+  let qrSvg = '';
   let adminPw = '';
-  let adminMsg = '';
-  async function savePassword() {
-    try { await setAdminPassword(adminPw); adminMsg = 'Remote password saved.'; adminPw = ''; }
-    catch (e) { adminMsg = e.message; }
+  let pwBusy = false;
+
+  async function load() {
+    try { cfg = await getConfig(); } catch (e) { say(e.message, 'error'); }
+    try {
+      remote = await getRemote();
+      remoteUrl = remote.urls?.[0]?.url || '';
+      if (remoteUrl) qrSvg = await getRemoteQR(remoteUrl);
+    } catch { /* remote info is optional */ }
   }
 
   async function save() {
-    try {
-      await updateConfig(cfg);
-      saved = true;
-      setTimeout(() => saved = false, 2000);
-    } catch (e) { alert('Failed: ' + e.message); }
+    saving = true;
+    try { cfg = await saveConfig(cfg); say('Settings saved.'); }
+    catch (e) { say(e.message, 'error'); }
+    finally { saving = false; }
   }
+
+  async function showQr(url) {
+    remoteUrl = url;
+    try { qrSvg = await getRemoteQR(url); } catch { qrSvg = ''; }
+  }
+
+  async function savePassword() {
+    pwBusy = true;
+    try {
+      await setAdminPassword(adminPw);
+      remote = { ...remote, password_set: true };
+      adminPw = '';
+      say('Admin password saved. You can now sign in from other devices.');
+    } catch (e) { say(e.message, 'error'); }
+    finally { pwBusy = false; }
+  }
+
+  onMount(load);
 </script>
 
-<div class="settings">
-  <h1>Settings</h1>
+<svelte:head><title>Settings · NetCast</title></svelte:head>
 
-  <section class="section">
-    <h2>🎨 Theme</h2>
-    <div class="theme-grid">
+<div class="page">
+  <header class="page-head"><h1>Settings</h1></header>
+
+  <section class="section" aria-labelledby="look-h">
+    <header>
+      <h2 id="look-h">Appearance</h2>
+      <p>Saved on this device only.</p>
+    </header>
+    <fieldset class="choices">
+      <legend class="sr-only">Theme</legend>
       {#each $themeList as t}
-        <button
-          class="theme-card"
-          class:selected={currentTheme === t}
-          on:click={() => setTheme(t)}
-        >
-          <span class="theme-icon">{themeLabels[t]?.icon || '🎨'}</span>
-          <span class="theme-name">{themeLabels[t]?.name || t}</span>
-          <span class="theme-desc">{themeLabels[t]?.desc || ''}</span>
-          {#if currentTheme === t}
-            <span class="theme-active">Active</span>
-          {/if}
-        </button>
+        <label class="choice">
+          <input type="radio" name="theme" value={t.id} checked={$theme === t.id} on:change={() => setTheme(t.id)} />
+          <span class="name">{t.name}</span>
+          <span class="desc">{t.desc}</span>
+        </label>
       {/each}
-    </div>
+    </fieldset>
   </section>
 
-  <section class="section">
-    <h2>📡 Default Hotspot</h2>
-    <div class="form-row">
-      <div class="form-group">
-        <label for="s-ssid">Default SSID</label>
-        <input id="s-ssid" type="text" bind:value={cfg.ssid} />
-      </div>
-      <div class="form-group">
-        <label for="s-pass">Default Password</label>
-        <input id="s-pass" type="text" bind:value={cfg.password} />
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label for="s-band">Default Band</label>
-        <select id="s-band" bind:value={cfg.band}>
-          <option value="bg">2.4 GHz</option>
-          <option value="a">5 GHz</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="s-channel">Channel</label>
-        <input id="s-channel" type="number" bind:value={cfg.channel} min="0" max="196" />
-        <small>0 = auto</small>
-      </div>
-    </div>
-  </section>
+  <section class="section" aria-labelledby="remote-h">
+    <header>
+      <h2 id="remote-h">Remote control</h2>
+      <p>Manage NetCast from your phone while it is connected to the hotspot, or from any device on your network.</p>
+    </header>
 
-  <section class="section">
-    <h2>⚖️ Fair Share Mode</h2>
-    <label class="toggle-row">
-      <input type="checkbox" bind:checked={cfg.fair_share_enabled} />
-      <span class="toggle-slider"></span>
-      <span>Enable per-client bandwidth sharing</span>
-    </label>
-    {#if cfg.fair_share_enabled}
-      <div class="form-group" style="margin-top: 0.75rem;">
-        <label for="s-bw">Total Bandwidth (Kbps)</label>
-        <input id="s-bw" type="number" bind:value={cfg.total_bandwidth_kbps} min="0" />
-        <small>0 = auto-detect</small>
+    {#if remote}
+      <div class="panel">
+        {#if remote.urls?.length}
+          <div class="split">
+            <div class="stack">
+              <h3>Open this address on your phone</h3>
+              {#each remote.urls as u}
+                <div class="stack tight">
+                  <a class="addr" href={u.url}>{u.url}</a>
+                  <span class="small">{u.label}</span>
+                  <div class="row">
+                    <button class="btn small" on:click={() => showQr(u.url)}>Show QR code</button>
+                    <button class="btn small" on:click={async () => say((await copy(u.url)) ? 'Address copied.' : 'Could not copy.')}>Copy</button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+            {#if qrSvg}<div class="qr" role="img" aria-label="QR code for {remoteUrl}">{@html qrSvg}</div>{/if}
+          </div>
+        {:else}
+          <p><strong>The hotspot is off, so there is no remote address yet.</strong></p>
+          <p class="small">Start the hotspot, then come back. To reach NetCast from your home network instead, set <code>listen_host = "0.0.0.0"</code> in the config file.</p>
+        {/if}
+      </div>
+
+      <div class="panel">
+        <h3>{remote.password_set ? 'Change the admin password' : 'Set an admin password'}</h3>
+        <p class="small">{remote.password_set
+          ? 'Other devices sign in with this password. Changing it signs them all out.'
+          : 'Without a password, only this computer can manage NetCast. Set one to sign in from your phone.'}</p>
+        <form class="stack" on:submit|preventDefault={savePassword}>
+          <div class="field">
+            <label for="admin-pw">New password (at least 8 characters)</label>
+            <div class="row nowrap">
+              <input id="admin-pw" class="grow" type="password" autocomplete="new-password" bind:value={adminPw} />
+              <button type="button" class="btn small" on:click={() => { adminPw = randomPassword(14); }}>Generate</button>
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn primary" disabled={adminPw.length < 8 || pwBusy}>Save password</button>
+          </div>
+        </form>
+        <p class="small">NetCast uses plain HTTP, so only share this password on a network you trust. A hotspot protected by WPA2 qualifies.</p>
       </div>
     {/if}
   </section>
 
-  <section class="section">
-    <h2>🚪 Captive Portal</h2>
-    <label class="toggle-row">
-      <input type="checkbox" bind:checked={cfg.captive_portal_enabled} />
-      <span class="toggle-slider"></span>
-      <span>Show landing page to connecting devices</span>
-    </label>
-    {#if cfg.captive_portal_enabled}
-      <div class="form-group" style="margin-top: 0.75rem;">
-        <label for="s-portal-msg">Portal Message</label>
-        <textarea id="s-portal-msg" bind:value={cfg.captive_portal_message} rows="2"></textarea>
-      </div>
-    {/if}
-  </section>
+  {#if cfg}
+    <form class="stack gap-lg" on:submit|preventDefault={save}>
+      <section class="section" aria-labelledby="defaults-h">
+        <header>
+          <h2 id="defaults-h">Hotspot defaults</h2>
+          <p>Used the next time you start a hotspot.</p>
+        </header>
+        <div class="panel">
+          <div class="split">
+            <div class="field"><label for="d-ssid">Network name</label><input id="d-ssid" type="text" maxlength="32" bind:value={cfg.ssid} /></div>
+            <div class="field"><label for="d-band">Band</label>
+              <select id="d-band" bind:value={cfg.band}><option value="bg">2.4 GHz</option><option value="a">5 GHz</option></select></div>
+            <div class="field"><label for="d-ch">Channel</label><input id="d-ch" type="number" min="0" max="196" bind:value={cfg.channel} />
+              <p class="hint">0 picks one automatically.</p></div>
+          </div>
+        </div>
+      </section>
 
-  <section class="section">
-    <h2>🔐 Remote Access</h2>
-    <div class="form-group">
-      <label for="s-admin-pw">Admin password (to manage NetCast from another device)</label>
-      <input id="s-admin-pw" type="password" bind:value={adminPw} minlength="8" />
-      <small>At least 8 characters. Without one, only this machine can manage NetCast.</small>
-    </div>
-    <button class="save-btn" on:click={savePassword} disabled={adminPw.length < 8}>Set password</button>
-    {#if adminMsg}<small style="display:block;margin-top:0.5rem">{adminMsg}</small>{/if}
-  </section>
+      {#if $platform.capabilities?.fair_share || $platform.capabilities?.captive_portal}
+        <section class="section" aria-labelledby="rules-h">
+          <header><h2 id="rules-h">Sharing rules</h2></header>
+          <div class="panel">
+            {#if $platform.capabilities?.fair_share}
+              <label class="switch"><input type="checkbox" role="switch" bind:checked={cfg.fair_share_enabled} /><span>Give every device an equal share of the speed</span></label>
+              {#if cfg.fair_share_enabled}
+                <div class="field"><label for="d-bw">Total speed to share (kbps)</label>
+                  <input id="d-bw" type="number" min="0" bind:value={cfg.total_bandwidth_kbps} /><p class="hint">0 uses a safe default.</p></div>
+              {/if}
+            {/if}
+            {#if $platform.capabilities?.captive_portal}
+              <label class="switch"><input type="checkbox" role="switch" bind:checked={cfg.captive_portal_enabled} /><span>Show a welcome page when devices connect</span></label>
+              {#if cfg.captive_portal_enabled}
+                <div class="field"><label for="d-msg">Welcome message</label>
+                  <textarea id="d-msg" rows="2" bind:value={cfg.captive_portal_message}></textarea></div>
+              {/if}
+            {/if}
+          </div>
+        </section>
+      {/if}
 
-  <div class="save-bar">
-    <button class="save-btn" on:click={save}>
-      {saved ? '✓ Saved!' : '💾 Save Settings'}
-    </button>
-  </div>
+      <div class="row"><button class="btn primary big" disabled={saving}>{#if saving}<span class="spinner"></span>{/if} Save settings</button></div>
+    </form>
+  {/if}
+
+  <section class="section" aria-labelledby="about-h">
+    <header><h2 id="about-h">About</h2></header>
+    <dl class="facts">
+      <div><dt>Version</dt><dd>0.2.0</dd></div>
+      <div><dt>System</dt><dd>{$platform.os}</dd></div>
+      <div><dt>Hotspot engine</dt><dd>{$platform.backend || '–'}</dd></div>
+    </dl>
+  </section>
 </div>
 
 <style>
-  .settings { max-width: 720px; margin: 0 auto; }
-  .settings h1 { font-size: 1.75rem; font-weight: 800; margin-bottom: 2rem; }
-
-  .section {
-    margin-bottom: 2rem; padding: 1.5rem;
-    background: var(--rn-bg-card); border: 1px solid var(--rn-border);
-    border-radius: var(--rn-border-radius);
-  }
-  .section h2 { font-size: 1rem; font-weight: 700; margin-bottom: 1rem; }
-
-  .theme-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
-  .theme-card {
-    display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
-    padding: 1.25rem 1rem; background: var(--rn-bg-input);
-    border: 2px solid var(--rn-border); border-radius: var(--rn-border-radius-sm);
-    cursor: pointer; transition: all var(--rn-transition); text-align: center;
-    color: var(--rn-text-primary); position: relative;
-  }
-  .theme-card:hover { border-color: var(--rn-accent); transform: translateY(-1px); }
-  .theme-card.selected { border-color: var(--rn-accent); background: rgba(var(--rn-accent-rgb), 0.06); box-shadow: 0 0 20px var(--rn-accent-glow); }
-  .theme-icon { font-size: 1.75rem; }
-  .theme-name { font-weight: 700; font-size: 0.9rem; }
-  .theme-desc { font-size: 0.72rem; color: var(--rn-text-secondary); }
-  .theme-active {
-    position: absolute; top: 6px; right: 8px;
-    font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
-    color: var(--rn-accent); background: rgba(var(--rn-accent-rgb), 0.12);
-    padding: 0.15rem 0.4rem; border-radius: 4px;
-  }
-
-  .form-row { display: flex; gap: 1rem; }
-  .form-group { flex: 1; margin-bottom: 0.75rem; }
-  .form-group label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--rn-text-secondary); margin-bottom: 0.3rem; }
-  .form-group input, .form-group select, .form-group textarea {
-    width: 100%; padding: 0.6rem 0.75rem;
-    background: var(--rn-bg-input); border: 1px solid var(--rn-border);
-    border-radius: var(--rn-border-radius-sm); color: var(--rn-text-primary);
-    font-size: 0.9rem; font-family: inherit; transition: border-color var(--rn-transition);
-  }
-  .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
-    outline: none; border-color: var(--rn-accent); box-shadow: 0 0 0 3px var(--rn-accent-glow);
-  }
-  .form-group small { font-size: 0.72rem; color: var(--rn-text-muted); }
-  .form-group textarea { resize: vertical; }
-
-  .toggle-row {
-    display: flex; align-items: center; gap: 0.75rem; cursor: pointer;
-    font-size: 0.9rem; color: var(--rn-text-primary);
-  }
-  .toggle-row input { display: none; }
-  .toggle-slider {
-    width: 42px; height: 22px; background: var(--rn-bg-input);
-    border: 1px solid var(--rn-border); border-radius: 11px;
-    position: relative; transition: all var(--rn-transition); flex-shrink: 0;
-  }
-  .toggle-slider::after {
-    content: ''; position: absolute; top: 2px; left: 2px;
-    width: 16px; height: 16px; background: var(--rn-text-muted);
-    border-radius: 50%; transition: all var(--rn-transition);
-  }
-  .toggle-row input:checked + .toggle-slider { background: rgba(var(--rn-accent-rgb), 0.2); border-color: var(--rn-accent); }
-  .toggle-row input:checked + .toggle-slider::after { transform: translateX(20px); background: var(--rn-accent); }
-
-  .save-bar { position: sticky; bottom: 1rem; text-align: center; }
-  .save-btn {
-    padding: 0.75rem 2.5rem; background: linear-gradient(135deg, var(--rn-accent), #a855f7);
-    border: none; border-radius: var(--rn-border-radius); color: #fff;
-    font-size: 1rem; font-weight: 700; cursor: pointer; transition: all var(--rn-transition);
-    box-shadow: 0 4px 20px var(--rn-accent-glow);
-  }
-  .save-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 32px var(--rn-accent-glow); }
-
-  @media (max-width: 600px) {
-    .theme-grid { grid-template-columns: 1fr; }
-    .form-row { flex-direction: column; }
-  }
+  .nowrap { flex-wrap: nowrap; }
+  .tight { gap: 0.35rem; }
+  .gap-lg { gap: 2.5rem; }
+  .addr { font-size: 1.25rem; font-weight: 700; overflow-wrap: anywhere; }
 </style>

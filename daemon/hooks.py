@@ -124,3 +124,28 @@ class NetCastHookSpecs:
 
         :param portal_config: Active CaptivePortalConfig instance to inspect or adjust.
         """
+
+    @hookspec
+    def register_plugin(self, plugins: list[dict[str, Any]]) -> None:
+        """Describe this plugin so it gets a settings card on the Plugins page.
+
+        Append a dict: ``{"id", "title", "description", "fields": [...], "links": [...]}``.
+        Field types: toggle, select (with ``options``), text, url, password, number.
+        A field may carry ``show_if={"key": k, "value": v}`` or ``{"key": k, "not": v}``.
+        ``links`` and ``portal_links`` may be callables returning ``[{"label", "url"}]``.
+        """
+
+    @hookspec
+    def configure_plugin(self, plugin_id: str, values: dict[str, Any]) -> None:
+        """Called at start and whenever settings are saved. Ignore ids that are not yours.
+
+        :param plugin_id: The plugin whose settings changed.
+        :param values: ``{"enabled": bool, <field key>: value, ...}`` with secrets included.
+        """
+
+    @hookspec
+    def extend_dnsmasq(self, lines: list[str]) -> None:
+        """Append dnsmasq config lines (upstream servers, blocklists) before the hotspot starts.
+
+        An implementation may return a coroutine; NetCast awaits it before dnsmasq starts.
+        """

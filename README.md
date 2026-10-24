@@ -1,200 +1,272 @@
 <div align="center">
 
-# ⚡ NetCast
+<img src="assets/icons/netcast.svg" alt="NetCast logo: a Wi-Fi symbol made of green arcs over a red watermelon slice" width="120">
 
-### The VLC of Software Routers
+# NetCast
 
-**Share any internet connection as a Wi-Fi hotspot. It plays everything, works everywhere, and just works.**
+### The VLC of software routers
+
+Share any internet connection as a Wi-Fi hotspot, and control it from your phone.
 
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](https://python.org)
-[![Platform](https://img.shields.io/badge/platform-Linux-orange.svg)](#platform-support)
 
 </div>
 
 ---
 
-## What is NetCast?
+## What it does
 
-NetCast turns your Linux machine into a Wi-Fi hotspot — regardless of where your internet comes from. Ethernet, Wi-Fi repeating, USB tethering, PPPoE modems — it handles everything.
-
-Think of it as **VLC for networking**: it plays every input format, works on any machine, and focuses on reliability over feature bloat.
+NetCast turns a computer into a Wi-Fi hotspot. It does not care where the internet comes from, the way VLC does not care what file you open.
 
 ```
-Ethernet cable  ──┐
-Wi-Fi network   ──┤──→  NetCast  ──→  📶 Wi-Fi Hotspot
-USB tethering   ──┤      daemon       for all your devices
-PPPoE modem     ──┘
+Ethernet cable ──┐
+Wi-Fi network  ──┤
+Phone over USB ──┤
+Mobile modem   ──┼──→  NetCast  ──→  📶 your hotspot  ──→  phones, laptops, TVs
+VPN tunnel     ──┤        │
+ISP modem      ──┘        └──→  controlled from your phone
 ```
 
-## Why NetCast?
+It also gives you things a plain hotspot does not: a QR code to join, a list of devices you can disconnect or block, private DNS, ad blocking, and notifications when someone joins.
 
-| Feature | linux-wifi-hotspot | Windows Hotspot | Connectify | NetCast |
-|---------|-------------------|-----------------|------------|---------|
-| Price | Free | Free | **$40/yr** 💸 | **Free** |
-| Platform | Linux only | Windows only | Windows only | **Linux** (Win/Mac planned) |
-| Internet sources | Wi-Fi/Ethernet | Wi-Fi/Ethernet | Wi-Fi/Ethernet/3G/4G | **All** (+ PPPoE, USB, repeater) |
-| Client limit | Unlimited | 8 | Unlimited (Pro) | **Unlimited** |
-| Open source | ✓ | ✗ | ✗ | **✓** (BSD-2-Clause) |
-| QR code connect | ✗ | ✗ | ✗ | **✓** (scan & go) |
-| Per-client bandwidth | ✗ | ✗ | ✗ | **✓** (Fair Share) |
-| Captive portal | ✗ | ✗ | ✗ | **✓** (landing page) |
-| Crash recovery | ✗ | Partial | Partial | **✓** (4-layer Dead Man's Switch) |
-| Plugin system | ✗ | ✗ | ✗ | **✓** (`pip install netcast-plugin-xxx`) |
-| Manage from phone | ✗ | ✗ | ✗ | **✓** (web UI on connected device) |
-| Theme skins | ✗ | ✗ | ✗ | **✓** (4 built-in + community) |
-| Runs as root | Yes | N/A | Admin | **No** (Linux capabilities) |
-| Ad-free | ✓ | ✓ | ✗ (ads in free tier) | **✓** |
+## Status
 
-## Quick Start
+Read this before you rely on it.
 
-### Install
+| Part | State |
+|------|-------|
+| Linux hotspot (Ethernet, USB, mobile modem, VPN, Wi-Fi) | Written. **Not yet run on real hardware.** |
+| Wi-Fi repeater on one adapter | Written. Needs a card that can do AP and client at once. Not yet run on hardware. |
+| PPPoE (ISP modem) | Written. Needs the helper service. Not yet run on hardware. |
+| Windows and macOS | **Experimental.** Written from the platform documentation, never run on those systems. |
+| Web interface | Built and checked automatically: no accessibility violations in the four themes. |
+| Plugins, saved settings, sign-in, device blocking logic | Covered by automated tests. |
+
+[docs/TESTING.md](docs/TESTING.md) lists exactly how to check each hardware feature, and what to send me if one fails.
+
+## Install (Linux)
+
+You need Linux with a Wi-Fi adapter that supports access-point mode, and Python 3.11 or newer.
 
 ```bash
-# Ubuntu / Debian
-sudo apt install hostapd dnsmasq nftables iw
-git clone https://github.com/mo7hi/netcast.git
+git clone https://github.com/netcast/netcast.git
 cd netcast
-make dev        # Development mode
-# OR
-sudo make install  # System install
+
+sudo sh scripts/install-deps.sh      # hostapd, dnsmasq, nftables, iw, ppp, node
+make web                             # builds the web interface
+sudo make install                    # installs the service
+
+sudo systemctl enable --now netcastd
 ```
 
-### Run
+Open **http://127.0.0.1:8384** in a browser on that computer.
+
+Want the `netcast` command to work without `sudo`? Add yourself to the `netdev` group, then log out and in:
 
 ```bash
-# Start the daemon
-sudo systemctl start netcastd
-
-# Open the web UI
-xdg-open http://127.0.0.1:8384
-
-# Or use the CLI
-netcast start --source eth0 --ssid "MyHotspot" --password "supersecret"
-netcast status
-netcast qr       # Print QR code in terminal
-netcast stop
+sudo usermod -aG netdev $USER
 ```
 
-## Architecture
+**Check your adapter first.** Run `iw list | grep -A8 "Supported interface modes"`. If `* AP` is not in the list, that adapter cannot host a hotspot.
 
-```
- ┌──────────────────────────────────────────┐
- │  Web Browser (or phone on hotspot)       │
- │  Svelte UI — small prebuilt bundle      │
- └──────────────┬───────────────────────────┘
-                │ REST + WebSocket
- ┌──────────────┴───────────────────────────┐
- │  netcastd  (Python asyncio daemon)       │
- │  • Runs as 'netcast' user (not root!)    │
- │  • CAP_NET_ADMIN + CAP_NET_RAW only      │
- │  • systemd watchdog + Dead Man's Switch  │
- │  • Plugin system (pluggy)                │
- └──────────────┬───────────────────────────┘
-                │
- ┌──────────────┴───────────────────────────┐
- │  Linux Networking Stack                   │
- │  hostapd · NetworkManager · nftables     │
- │  dnsmasq · tc · pppd                     │
- └──────────────────────────────────────────┘
-```
+## Your first hotspot
+
+1. Open NetCast. You land on **Hotspot**.
+2. Pick the internet source. **Automatic** uses whatever connection the computer is using now, and is the right choice for most people.
+3. Keep the random password NetCast filled in, or press **New** for another. Change the network name if you like.
+4. Press **Check this setup**. Fix anything marked *Problem*; *Warning* items are safe to ignore.
+5. Press **Start hotspot**.
+6. On the running screen, point a phone camera at the QR code to join.
+
+## Internet sources
+
+| Source | Choose it when | You need |
+|--------|----------------|----------|
+| **Automatic** | You are not sure | Nothing. Uses the connection with the default route. |
+| **Ethernet cable** | A router or modem is plugged into this computer | An Ethernet port with a cable |
+| **Wi-Fi network** | The only internet is another Wi-Fi network | A second Wi-Fi adapter, *or* one adapter that can be a client and an access point at once (NetCast tells you if yours cannot). The hotspot uses the same channel as the Wi-Fi it repeats. |
+| **Phone over USB** | You have a phone with mobile data | A cable, and USB tethering turned on in the phone |
+| **Mobile data modem** | A SIM modem is connected (shows up as `wwan0`) | A modem that is already connected to its network |
+| **VPN tunnel** | You want every device on your hotspot to use a VPN | A WireGuard, OpenVPN or Tailscale connection that is up |
+| **ISP modem (PPPoE)** | Your provider gives you a username and password | The modem in an Ethernet port. NetCast asks for the credentials and dials in. |
+
+## Control it from your phone
+
+NetCast has a full web interface made for phones, with a bottom tab bar and large buttons.
+
+1. **On the computer**, open **Settings → Remote control** and set an **admin password**. This step is required, because a phone is a different device and must sign in.
+2. Start the hotspot.
+3. Join the hotspot with your phone.
+4. Open the address shown under Remote control. It is `http://netcast.lan/` or `http://192.168.12.1/` on the default setup. The page also shows a QR code for it.
+5. Sign in with the admin password.
+
+Now you can start and stop the hotspot, see and block devices, and change plugins from the couch. Use your browser's **Add to Home Screen** to keep it one tap away.
+
+Good to know:
+
+- **It is plain HTTP.** Only use a password you have not used anywhere else. A hotspot protected by WPA2 keeps it off the open air.
+- **Five wrong passwords lock that device out for five minutes.** Signing in lasts 12 hours.
+- **`netcast.lan` needs the hotspot's own DNS.** If your phone has its own Private DNS set (Android), use the numeric address instead.
+- **From your home network too:** set `listen_host = "0.0.0.0"` in `/etc/netcast/config.toml`, restart, and the Remote control page lists the extra addresses. Anyone on that network can then reach the sign-in page.
+
+## Devices
+
+The **Devices** tab lists everything connected, with its address and how much it has uploaded and downloaded.
+
+- **Disconnect** kicks a device off. It can rejoin right away.
+- **Block** cuts its internet and disconnects it. It stays blocked, even after restarts, until you press **Unblock** under *Blocked*.
+
+Blocking works on Linux. It stops the device's internet, but a blocked phone can still see the Wi-Fi network.
 
 ## Plugins
 
-NetCast is extensible. Install plugins with pip:
+Open **Plugins**. Each plugin is off until you turn it on, then shows its own settings.
+
+### Private DNS
+
+Encrypts every website lookup, so your provider or the café network cannot see which sites you visit.
+
+1. Turn it on and choose who answers: **Cloudflare**, **Quad9** (blocks malware), **AdGuard** (blocks ads), **Mullvad**, **NextDNS** (your own settings) or your own address.
+2. Leave **Make every device use it** on. This catches devices that ignore the hotspot's DNS.
+3. Stop and start the hotspot.
+
+**The link for guests.** With the plugin on, the plugin card shows a link such as `http://192.168.12.1/portal/private-dns`. Share it. It opens a page where an iPhone downloads a profile with one tap, and an Android or Windows user gets the exact steps. That keeps the private DNS working when they leave your hotspot. The same link appears on the welcome page if you use it.
+
+If the provider cannot be reached, lookups fail rather than silently falling back to unencrypted DNS.
+
+### Ad and tracker blocking
+
+Blocks known ad, tracker and malware sites for every device, with nothing installed on the devices. NetCast downloads a public list, keeps only plain block entries, and refreshes it weekly. Choose the standard list, a stricter one, or your own. Restart the hotspot after changing it. Works with Private DNS.
+
+### Notifications
+
+Sends a message when a device joins (and optionally when one leaves or the hotspot starts and stops). Channels: **ntfy**, **Telegram**, **Discord**, **Slack**, or any web address that accepts JSON. For ntfy, pick a hard-to-guess topic name and put `https://ntfy.sh/your-topic` as the address, then subscribe to it in the ntfy phone app.
+
+### Built into Settings
+
+- **Equal share of the speed.** Gives each device the same slice of your connection (Linux only).
+- **Welcome page.** Shows a page with a **Get online** button when someone joins. Authorized devices stay online for two hours (Linux only).
+
+### Install more, or write your own
 
 ```bash
-pip install netcast-plugin-telegram   # Notifications on Telegram
-pip install netcast-plugin-adblock    # DNS-based ad blocking
-pip install netcast-plugin-bandwidth  # Bandwidth monitoring dashboard
+pip install netcast-plugin-name
+sudo systemctl restart netcastd
 ```
 
-### Write Your Own Plugin
+A plugin is a small Python class. [docs/PLUGINS.md](docs/PLUGINS.md) has a working example in about twenty lines and the full list of hooks.
 
-```python
-# my_plugin.py
-from daemon.hooks import hookimpl
+## Command line
 
-class MyPlugin:
-    @hookimpl
-    def on_client_connect(self, client):
-        print(f"📱 {client.hostname} connected!")
-
-    @hookimpl
-    def on_hotspot_start(self, config, status):
-        print(f"🟢 Hotspot '{config.ssid}' is live!")
+```bash
+netcast start --source eth0 --ssid "MyHotspot" --password "a-long-password"
+netcast status        # state, address and connected devices
+netcast qr            # QR code in the terminal
+netcast preflight     # run the setup checks
+netcast interfaces    # list network adapters
+netcast stop
 ```
+
+`--source` is optional only in the web interface; the command line needs it. Add `--ap wlan1` to choose which Wi-Fi adapter hosts the hotspot.
+
+## Looks and accessibility
+
+**Settings → Appearance** has four looks, each there for a reason:
+
+| Look | For |
+|------|-----|
+| **Match my device** | Follows your system: light, dark, or high contrast if your system asks for it. This is the default. |
+| **Light** | Bright rooms and sunlight |
+| **Dark** | Night |
+| **High contrast** | Low vision: black and white, heavier lines, larger text |
+
+The interface uses a font designed for legibility (Atkinson Hyperlegible), works with a keyboard and screen readers, keeps visible focus outlines, and respects reduced-motion settings. The choice is saved on that device.
+
+Plugins can add their own looks. They appear in the same list.
+
+## Platform support
+
+| System | How it works | Source choice | Equal share, welcome page, blocking |
+|--------|--------------|---------------|-------------------------------------|
+| **Linux** | Full: hostapd, dnsmasq and nftables | All seven sources | Yes |
+| **Windows 10/11** *(experimental)* | Drives Windows Mobile Hotspot | Shares the connection Windows is using | No |
+| **macOS** *(experimental)* | Assistant mode: macOS does not let apps switch on Internet Sharing, so NetCast opens the right page, shows the steps and the name and password to enter, then watches until it is on and lists your devices | Whatever you choose in System Settings | No |
+
+The web interface and remote control work from any phone or computer with a browser, on any system. On Windows and macOS, run the daemon with `python -m daemon` and set `NETCAST_WEB_DIR` to the built `web/dist` folder.
+
+## Configuration
+
+Settings you change in the interface are saved for you (in `/var/lib/netcast/config.toml`) and survive restarts. You can also edit `/etc/netcast/config.toml`, which the saved settings override:
 
 ```toml
-# pyproject.toml
-[project.entry-points."netcast"]
-my_plugin = "my_plugin:MyPlugin"
+[hotspot]
+ssid = "NetCast"
+password = "choose-your-own"
+band = "bg"            # "bg" = 2.4 GHz, "a" = 5 GHz
+channel = 0            # 0 = automatic
+
+[daemon]
+listen_host = "127.0.0.1"   # "0.0.0.0" lets your home network reach the interface
+listen_port = 8384
+
+[fair_share]
+enabled = false
+total_bandwidth_kbps = 0
+
+[captive_portal]
+enabled = true
+message = "Welcome. Tap Get online."
 ```
 
-Available hooks: `register_source`, `register_ui_tab`, `on_hotspot_start`, `on_hotspot_stop`, `on_client_connect`, `on_client_disconnect`, `register_firewall_rules`, `register_api_routes`, `register_skin`, `modify_captive_portal`.
+Environment variables (set them in a systemd override): `NETCAST_CONFIG` (config path), `NETCAST_BACKEND` (`hostapd` or `nm` to force the engine), `NETCAST_WEB_DIR`, `NETCAST_STATE_DIR`, `NETCAST_DBUS_BUS=session` (for running as a normal user while developing).
 
-## Themes
+## Troubleshooting
 
-NetCast ships with 4 built-in themes. Switch instantly in Settings.
+**"No Wi-Fi adapter with AP mode found."** NetCast lists the adapters it found and what each can do. If you only have one Wi-Fi card and it is also your internet source, it must support being a client and an access point at once. Check with `iw list | grep -A6 "valid interface combinations"`: you want one line with both `managed` and `AP`. If not, use Ethernet or USB for the internet, or add a second USB Wi-Fi adapter.
 
-| Theme | Vibe |
-|-------|------|
-| 🌙 **Midnight** (default) | Deep blue, cyan glow, premium feel |
-| 🚨 **Panic Mode** | Max contrast, giant text, zero confusion |
-| 💚 **Cyberpunk** | Terminal green, hacker aesthetic |
-| 🖥️ **Retro 95** | Classic Windows look, beveled borders |
+**The hotspot starts but devices have no internet.** Run **Check this setup**. Then confirm `nft list ruleset | grep masquerade` shows your source interface.
 
-Community themes are just CSS files — distribute them as plugins.
+**"hostapd failed to start".** The message includes hostapd's own reason. The usual causes are an adapter that does not support the chosen band, or something else (NetworkManager, another hotspot) using the adapter.
 
-## Platform Support
+**Port 53 is already in use.** A system `dnsmasq` or `systemd-resolved` stub is holding it. Run `sudo systemctl disable --now dnsmasq`. NetCast already works with systemd-resolved.
 
-| Platform | Status | Notes |
-|----------|--------|-------|
-| 🐧 Linux | ✅ Full Support | Ubuntu, Fedora, Arch, Debian |
-| 🪟 Windows | 🚧 Coming (v2) | Go daemon + WinRT API |
-| 🍎 macOS | 📋 Planned (v3) | Assistant Mode |
+**5 GHz does not work.** Some adapters and regions block 5 GHz hotspots. Use 2.4 GHz, or channels 36 to 48.
 
-## Security
+**The phone cannot sign in to remote control.** Set the admin password on the computer first (Settings → Remote control). Remote control is off without one.
 
-- **No root required** — runs with Linux capabilities (`CAP_NET_ADMIN`, `CAP_NET_RAW`)
-- **Session tokens** — API protected against DNS rebinding attacks
-- **4-layer crash recovery** — signal handlers → ExecStopPost → watchdog → OS pipe sentinel
-- **Ephemeral firewall** — all rules in one nftables table, atomically deleted on stop
-- **Plugin sandboxing** — UI tabs in sandboxed iframes with CSP headers
+**Logs.** `journalctl -u netcastd -f`. PPPoE: `journalctl -u netcast-pppoe`.
 
-## Dependencies
+## Safety and privacy
 
-- Python 3.11+
-- hostapd, dnsmasq, nftables (or iptables), iw
-- NetworkManager (optional, recommended)
-- Node.js 18+ (build only, not runtime)
+- NetCast runs as its own `netcast` user with only the network capabilities it needs. The one exception is PPPoE, which needs a tiny root helper that checks every field before it runs `pppd`.
+- Everything NetCast changes (firewall rules, interfaces) lives in one place and is removed when the hotspot stops. If NetCast crashes, a recovery script cleans up.
+- The interface is only reachable from the computer itself and from devices on the hotspot. Remote devices must sign in.
+- Settings that contain secrets (hotspot password, notification tokens, PPPoE login) are stored in files only the `netcast` user can read.
+- Plugin pages run in a sandbox with no network and no access to NetCast.
+- NetCast does not send data anywhere. The plugins you turn on contact only the service you chose (a DNS provider, a blocklist host, a notification service).
+
+## Uninstall
+
+```bash
+sudo make uninstall
+```
 
 ## Development
 
 ```bash
-git clone https://github.com/mo7hi/netcast.git
-cd netcast
-make dev
-
-# Terminal 1: Run daemon
-sudo python -m daemon
-
-# Terminal 2: Run web UI dev server
-cd web && pnpm run dev
+pip install -e ".[dev]"
+cd web && npm install && npm run dev      # interface on http://localhost:5173
+sudo NETCAST_DBUS_BUS=session python -m daemon
+make test
 ```
+
+The interface lives in `web/src`. All colours come from `web/src/styles/tokens.css`; change them there.
 
 ## License
 
-BSD-2-Clause — use it however you want.
+BSD-2-Clause. Use it however you want.
 
 ## Credits
 
-NetCast is a spiritual successor to [linux-wifi-hotspot](https://github.com/lakinduakash/linux-wifi-hotspot) by lakinduakash, which itself wraps [create_ap](https://github.com/oblique/create_ap) by oblique. We stand on the shoulders of giants.
-
----
-
-<div align="center">
-
-**NetCast** — Because sharing internet shouldn't require a PhD in networking.
-
-</div>
+NetCast is a spiritual successor to [linux-wifi-hotspot](https://github.com/lakinduakash/linux-wifi-hotspot) by lakinduakash, which wraps [create_ap](https://github.com/oblique/create_ap) by oblique. The interface font is [Atkinson Hyperlegible](https://brailleinstitute.org/freefont) from the Braille Institute.

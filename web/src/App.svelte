@@ -1,300 +1,138 @@
 <script>
   import { onMount } from 'svelte';
-  import { page, status, clients, logs, error, authState } from './lib/stores.js';
-  import { fetchToken, authStatus, getStatus, getUiTabs, connectWS } from './lib/api.js';
+  import { route, authState, status, clients, platform, interfaces, notice } from './lib/stores.js';
+  import { fetchToken, authStatus, getStatus, getClients, getPlatform, getInterfaces, getUiTabs, connectWS } from './lib/api.js';
   import { loadSavedTheme, loadCustomSkins } from './lib/theme.js';
-  import Wizard from './pages/Wizard.svelte';
-  import Preflight from './pages/Preflight.svelte';
-  import Dashboard from './pages/Dashboard.svelte';
+  import Logo from './components/Logo.svelte';
+  import Icon from './components/Icon.svelte';
+  import Hotspot from './pages/Hotspot.svelte';
+  import Devices from './pages/Devices.svelte';
+  import Plugins from './pages/Plugins.svelte';
   import Settings from './pages/Settings.svelte';
-  import Portal from './pages/Portal.svelte';
   import Login from './pages/Login.svelte';
-  import PluginTab from './pages/PluginTab.svelte';
 
-  let currentPage;
-  page.subscribe(v => currentPage = v);
+  const NAV = [
+    { id: 'hotspot', label: 'Hotspot', icon: 'signal' },
+    { id: 'devices', label: 'Devices', icon: 'devices' },
+    { id: 'plugins', label: 'Plugins', icon: 'plugins' },
+    { id: 'settings', label: 'Settings', icon: 'settings' },
+  ];
 
-  let tabs = [];
   let stopWS = () => {};
-  const isPortal = window.location.pathname.startsWith('/portal');
+  let poll;
+  let tabs = [];
+  let pluginTabs;
+
+  function syncRoute() {
+    const id = location.hash.replace(/^#\/?/, '').split('?')[0];
+    $route = NAV.some((n) => n.id === id) ? id : 'hotspot';
+  }
+
+  async function refresh() {
+    try {
+      $status = await getStatus();
+      $clients = $status.active ? await getClients() : [];
+    } catch { /* transient */ }
+  }
 
   async function init() {
-    try {
-      const s = await getStatus();
-      status.set(s);
-      if (s.active) page.set('dashboard');
-    } catch {}
-    try { tabs = await getUiTabs(); } catch {}
+    try { $platform = await getPlatform(); } catch { /* older daemon */ }
+    try { $interfaces = await getInterfaces(); } catch { /* shown by checks */ }
+    await refresh();
+    try { tabs = await getUiTabs(); } catch { /* optional */ }
     loadCustomSkins();
-
+    clearInterval(poll);
+    poll = setInterval(refresh, 5000);
     stopWS();
-    stopWS = connectWS((event) => {
-      if (event.type === 'status_update') status.set(event.data);
-      else if (event.type === 'client_connected') {
-        clients.update(c => c.some(x => x.mac === event.data.mac) ? c : [...c, event.data]);
-      }
-      else if (event.type === 'client_disconnected') {
-        clients.update(c => c.filter(x => x.mac !== event.data.mac));
-      }
-      else if (event.type === 'log_message') {
-        logs.update(l => [...l.slice(-99), event.data]);
-      }
-      else if (event.type === 'error') {
-        error.set(event.data.message);
-      }
+    stopWS = connectWS((ev) => {
+      if (ev.type === 'status_update') $status = ev.data;
+      else if (ev.type === 'client_connected') $clients = $clients.some((c) => c.mac === ev.data.mac) ? $clients : [...$clients, ev.data];
+      else if (ev.type === 'client_disconnected') $clients = $clients.filter((c) => c.mac !== ev.data.mac);
     });
   }
 
   async function boot() {
-    if (await fetchToken()) {
-      authState.set('ok');
-      await init();
-      return;
-    }
-    try {
-      const a = await authStatus();
-      authState.set(a.admin_password_set ? 'login' : 'disabled');
-    } catch {
-      authState.set('disabled');
-    }
+    if (await fetchToken()) { $authState = 'ok'; await init(); return; }
+    try { $authState = (await authStatus()).admin_password_set ? 'login' : 'disabled'; }
+    catch { $authState = 'disabled'; }
   }
 
-  function onLoggedIn() {
-    authState.set('ok');
-    init();
-  }
+  function signedIn() { $authState = 'ok'; init(); }
 
   onMount(() => {
     loadSavedTheme();
-    if (!isPortal) boot();
-    return () => stopWS();
+    syncRoute();
+    window.addEventListener('hashchange', syncRoute);
+    boot();
+    return () => { window.removeEventListener('hashchange', syncRoute); clearInterval(poll); stopWS(); };
   });
 
-  function navigate(p) { page.set(p); }
+  $: title = NAV.find((n) => n.id === $route)?.label;
+  $: if (title) document.title = `${title} · NetCast`;
+  $: summary = $status.active ? `On · ${$status.client_count || 0} device${($status.client_count || 0) === 1 ? '' : 's'}` : 'Off';
 </script>
 
-{#if isPortal}
-  <Portal />
-{:else if $authState === 'checking'}
-  <div class="center-msg">Connecting…</div>
+<a class="skip-link" href="#main">Skip to content</a>
+
+{#if $authState === 'checking'}
+  <main class="center" id="main"><p class="small">Connecting…</p></main>
 {:else if $authState === 'login'}
-  <Login on:success={onLoggedIn} />
+  <Login onsuccess={signedIn} />
 {:else if $authState === 'disabled'}
-  <div class="center-msg">
-    Remote management is disabled.<br />
-    Open NetCast on this machine (http://127.0.0.1:8384) and set an admin password in
-    Settings → Remote Access.
-  </div>
+  <main class="center" id="main">
+    <div class="panel narrow">
+      <div class="brand"><Logo /> NetCast</div>
+      <h1 class="t">Remote control is off</h1>
+      <p>To manage NetCast from this device, open it once on the computer running the hotspot, go to <strong>Settings → Remote control</strong>, and set an admin password.</p>
+    </div>
+  </main>
 {:else}
-  <div class="app-shell">
-    <nav class="sidebar">
-      <div class="logo">
-        <div class="logo-icon">⚡</div>
-        <span class="logo-text">NetCast</span>
-      </div>
-      <div class="nav-items">
-        <button class="nav-btn" class:active={currentPage === 'wizard'} on:click={() => navigate('wizard')}>
-          <span class="nav-icon">🧭</span><span>Wizard</span>
-        </button>
-        <button class="nav-btn" class:active={currentPage === 'dashboard'} on:click={() => navigate('dashboard')}>
-          <span class="nav-icon">📊</span><span>Dashboard</span>
-        </button>
-        <button class="nav-btn" class:active={currentPage === 'settings'} on:click={() => navigate('settings')}>
-          <span class="nav-icon">⚙️</span><span>Settings</span>
-        </button>
-        {#each tabs as t}
-          <button class="nav-btn" class:active={currentPage === 'plugin:' + t.id} on:click={() => navigate('plugin:' + t.id)}>
-            <span class="nav-icon">{t.icon || '🧩'}</span><span>{t.title}</span>
-          </button>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><Logo /> NetCast</div>
+      <nav class="nav" aria-label="Main">
+        {#each NAV as n}
+          <a href="#/{n.id}" aria-current={$route === n.id ? 'page' : undefined}><Icon name={n.icon} /> {n.label}</a>
         {/each}
+      </nav>
+      <div class="sidebar-foot">
+        <span class="chip" class:ok={$status.active} role="status">{summary}</span>
       </div>
-      <div class="nav-footer">
-        <span class="version">v0.1.0</span>
-      </div>
+    </aside>
+
+    <div>
+      <header class="topbar">
+        <div class="brand"><Logo size={30} /> NetCast</div>
+        <span class="chip" class:ok={$status.active} role="status">{summary}</span>
+      </header>
+
+      <main class="main" id="main" tabindex="-1">
+        {#if $route === 'hotspot'}<Hotspot />
+        {:else if $route === 'devices'}<Devices />
+        {:else if $route === 'plugins'}<Plugins />
+        {:else}<Settings />{/if}
+      </main>
+    </div>
+
+    <nav class="tabbar" aria-label="Main">
+      {#each NAV as n}
+        <a href="#/{n.id}" aria-current={$route === n.id ? 'page' : undefined}><Icon name={n.icon} size={24} /> {n.label}</a>
+      {/each}
     </nav>
-
-    <main class="content">
-      {#if $error}
-        <div class="toast error" on:click={() => error.set('')}>
-          <span class="toast-icon">✗</span> {$error}
-        </div>
-      {/if}
-
-      {#if currentPage === 'wizard'}
-        <Wizard />
-      {:else if currentPage === 'preflight'}
-        <Preflight />
-      {:else if currentPage === 'dashboard'}
-        <Dashboard />
-      {:else if currentPage === 'settings'}
-        <Settings />
-      {:else}
-        {#each tabs as t}
-          {#if currentPage === 'plugin:' + t.id}
-            <PluginTab tab={t} />
-          {/if}
-        {/each}
-      {/if}
-    </main>
   </div>
 {/if}
 
+<div class="notice-wrap" aria-live="polite">
+  {#if $notice}
+    <div class="notice" role={$notice.kind === 'error' ? 'alert' : 'status'}>
+      <span>{$notice.text}</span>
+      <button on:click={() => ($notice = null)}>Dismiss</button>
+    </div>
+  {/if}
+</div>
+
 <style>
-  :global(*) {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-  }
-
-  :global(body) {
-    font-family: var(--rn-font-family, 'Inter', system-ui, sans-serif);
-    background: var(--rn-bg-primary, #0f0f23);
-    color: var(--rn-text-primary, #e0e0e0);
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  .center-msg {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 2rem;
-    line-height: 1.6;
-    color: var(--rn-text-secondary, #8888aa);
-  }
-
-  .app-shell {
-    display: flex;
-    min-height: 100vh;
-  }
-
-  .sidebar {
-    width: 220px;
-    background: var(--rn-bg-secondary, #1a1a3e);
-    border-right: 1px solid rgba(255,255,255,0.06);
-    display: flex;
-    flex-direction: column;
-    padding: 1.5rem 0;
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 100;
-  }
-
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0 1.25rem 1.5rem;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    margin-bottom: 1rem;
-  }
-
-  .logo-icon {
-    font-size: 1.75rem;
-    filter: drop-shadow(0 0 8px var(--rn-accent, #00d4ff));
-  }
-
-  .logo-text {
-    font-size: 1.25rem;
-    font-weight: 800;
-    letter-spacing: -0.5px;
-    background: linear-gradient(135deg, var(--rn-accent, #00d4ff), #a855f7);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  .nav-items {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    padding: 0 0.75rem;
-  }
-
-  .nav-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    background: transparent;
-    border: none;
-    border-radius: var(--rn-border-radius, 12px);
-    color: var(--rn-text-secondary, #8888aa);
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    width: 100%;
-    text-align: left;
-  }
-
-  .nav-btn:hover {
-    background: rgba(255,255,255,0.05);
-    color: var(--rn-text-primary, #e0e0e0);
-  }
-
-  .nav-btn.active {
-    background: rgba(var(--rn-accent-rgb, 0, 212, 255), 0.12);
-    color: var(--rn-accent, #00d4ff);
-    font-weight: 600;
-  }
-
-  .nav-icon { font-size: 1.1rem; }
-
-  .nav-footer {
-    padding: 1rem 1.25rem;
-    border-top: 1px solid rgba(255,255,255,0.06);
-  }
-
-  .version {
-    font-size: 0.75rem;
-    color: var(--rn-text-secondary, #8888aa);
-    opacity: 0.5;
-  }
-
-  .content {
-    flex: 1;
-    margin-left: 220px;
-    padding: 2rem 2.5rem;
-    min-height: 100vh;
-  }
-
-  .toast {
-    position: fixed;
-    top: 1.5rem;
-    right: 1.5rem;
-    padding: 0.875rem 1.25rem;
-    border-radius: var(--rn-border-radius, 12px);
-    font-size: 0.875rem;
-    font-weight: 500;
-    z-index: 1000;
-    cursor: pointer;
-    animation: slideIn 0.3s ease;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  }
-
-  .toast.error {
-    background: rgba(255, 68, 68, 0.15);
-    border: 1px solid rgba(255, 68, 68, 0.3);
-    color: #ff6b6b;
-  }
-
-  .toast-icon { margin-right: 0.5rem; font-weight: 700; }
-
-  @keyframes slideIn {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-  }
-
-  @media (max-width: 768px) {
-    .sidebar { width: 64px; }
-    .sidebar span:not(.nav-icon):not(.logo-icon) { display: none; }
-    .content { margin-left: 64px; padding: 1.5rem; }
-    .logo { padding: 0 0.75rem 1rem; justify-content: center; }
-    .nav-btn { justify-content: center; padding: 0.75rem; }
-  }
+  .center { min-height: 100dvh; display: grid; place-items: center; padding: 1rem; }
+  .narrow { width: min(100%, 30rem); }
+  .t { font-size: 1.75rem; letter-spacing: -0.03em; }
 </style>

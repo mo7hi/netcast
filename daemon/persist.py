@@ -23,20 +23,28 @@ def _toml_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, (int, float)):
         return repr(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     return json.dumps(str(value), ensure_ascii=False).replace("\x7f", "\\u007f")
 
 
+def _emit(lines: list[str], path: list[str], body: dict[str, Any]) -> None:
+    scalars = {k: v for k, v in body.items() if not isinstance(v, dict) and v is not None}
+    tables = {k: v for k, v in body.items() if isinstance(v, dict)}
+    if scalars or not tables:
+        lines.append("[" + ".".join(path) + "]")
+        lines += [f"{k} = {_toml_value(v)}" for k, v in scalars.items()]
+        lines.append("")
+    for key, sub in tables.items():
+        _emit(lines, [*path, key], sub)
+
+
 def dumps_toml(data: dict[str, Any]) -> str:
-    """Serialize ``{table: {key: scalar}}`` to TOML (all NetCast config is this shape)."""
+    """Serialize nested tables of scalars to TOML (the shape of all NetCast config)."""
     lines: list[str] = []
     for table, body in data.items():
-        if not isinstance(body, dict):
-            continue
-        lines.append(f"[{table}]")
-        for key, value in body.items():
-            if value is not None:
-                lines.append(f"{key} = {_toml_value(value)}")
-        lines.append("")
+        if isinstance(body, dict):
+            _emit(lines, [table], body)
     return "\n".join(lines)
 
 

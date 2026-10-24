@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netcast"
-version = "0.1.0"
+version = "0.2.0"
 description = "The VLC of software routers — share any internet connection via Wi-Fi hotspot"
 readme = "README.md"
 license = {text = "BSD-2-Clause"}
@@ -52,6 +52,9 @@ captive_portal = "daemon.builtin_plugins.captive_portal:CaptivePortalPlugin"
 qr_connect = "daemon.builtin_plugins.qr_connect:QRConnectPlugin"
 status_monitor = "daemon.builtin_plugins.status_monitor:StatusMonitorPlugin"
 pppoe = "daemon.builtin_plugins.pppoe:PPPoEPlugin"
+private_dns = "daemon.builtin_plugins.private_dns:PrivateDNSPlugin"
+adblock = "daemon.builtin_plugins.adblock:AdblockPlugin"
+notifications = "daemon.builtin_plugins.notifications:NotificationsPlugin"
 
 [tool.setuptools.packages.find]
 include = ["daemon*", "cli*"]

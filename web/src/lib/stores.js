@@ -1,15 +1,17 @@
 /** NetCast reactive stores */
 import { writable } from 'svelte/store';
 
-export const page = writable('wizard');       // wizard | preflight | dashboard | settings | portal
+export const route = writable('hotspot');          // hotspot | devices | plugins | settings
+export const authState = writable('checking');     // checking | ok | login | disabled
 export const status = writable({ active: false, ssid: '', client_count: 0 });
 export const clients = writable([]);
-export const preflight = writable({ passed: false, checks: [] });
-export const interfaces = writable({ wifi: [], ethernet: [], usb: [] });
-export const config = writable({});
-export const logs = writable([]);
-export const theme = writable('default-dark');
-export const error = writable('');
-export const loading = writable(false);
-export const wizardDraft = writable(null);    // keeps Wizard entries across pages
-export const authState = writable('checking'); // checking | ok | login | disabled
+export const platform = writable({ os: 'linux', assistant: false, capabilities: {}, steps: [] });
+export const interfaces = writable({ wifi: [], ethernet: [], usb: [], cellular: [], vpn: [] });
+export const theme = writable('system');
+export const notice = writable(null);              // { kind: 'info' | 'error', text }
+export const draft = writable(null);               // hotspot form, kept while navigating
+
+export function say(text, kind = 'info') {
+  notice.set({ kind, text });
+  if (kind === 'info') setTimeout(() => notice.update((n) => (n && n.text === text ? null : n)), 5000);
+}

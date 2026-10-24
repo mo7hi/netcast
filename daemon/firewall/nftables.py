@@ -26,6 +26,7 @@
 
 import asyncio
 import logging
+import re
 import shutil
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from daemon.firewall.base import FirewallBackend
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = "netcast"
+_MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
 TABLE_FAMILY = "inet"
 
 
@@ -54,6 +56,9 @@ class NftablesBackend(FirewallBackend):
         self._captive_portal_active: bool = False
         self._captive_web_port: int = 8080
         self._plugin_rules: list[str] = []
+        self._ui_port: int = 0
+        self._force_dns: bool = False
+        self._blocked_macs: list[str] = []
 
     async def _execute_nft(self, rules: str) -> None:
         """Apply rules atomically via 'nft -f -' using stdin.
@@ -117,9 +122,30 @@ class NftablesBackend(FirewallBackend):
             "        flags timeout",
             "    }",
             "",
+            "    set blocked_macs {",
+            "        type ether_addr",
+            *(
+                [f"        elements = {{ {', '.join(self._blocked_macs)} }}"]
+                if self._blocked_macs
+                else []
+            ),
+            "    }",
+            "",
             "    chain prerouting {",
             "        type nat hook prerouting priority dstnat; policy accept;",
         ]
+
+        if self._ui_port and self._gateway_ip:
+            lines.append(
+                f"        ip daddr {self._gateway_ip} tcp dport 80 redirect to :{self._ui_port}"
+            )
+        if self._force_dns and self._ap_iface and not self._captive_portal_active:
+            lines.extend(
+                [
+                    f'        iifname "{self._ap_iface}" udp dport 53 redirect to :53',
+                    f'        iifname "{self._ap_iface}" tcp dport 53 redirect to :53',
+                ]
+            )
 
         if self._captive_portal_active and self._ap_iface:
             lines.extend(
@@ -140,6 +166,7 @@ class NftablesBackend(FirewallBackend):
                 "",
                 "    chain forward {",
                 "        type filter hook forward priority filter; policy accept;",
+                "        ether saddr @blocked_macs drop",
                 "        tcp flags syn tcp option maxseg size set rt mtu",
                 "        ct state established,related accept",
             ]
@@ -191,6 +218,48 @@ class NftablesBackend(FirewallBackend):
         )
         return "\n".join(lines)
 
+    @property
+    def ap_iface(self) -> str:
+        return self._ap_iface
+
+    async def expose_ui(self, gateway_ip: str, port: int) -> None:
+        """Make http://<gateway>/ (port 80) reach the web UI on ``port``."""
+        if not validate_ip_address(gateway_ip) or not (1 <= port <= 65535):
+            raise ValueError("Invalid UI address")
+        self._gateway_ip = gateway_ip
+        self._ui_port = port
+        await self._execute_nft(self._build_ruleset())
+
+    def set_force_dns(self, enabled: bool) -> None:
+        """Redirect all DNS from the hotspot to the local resolver (applied with the ruleset)."""
+        self._force_dns = bool(enabled)
+
+    @property
+    def blocked_macs(self) -> list[str]:
+        return list(self._blocked_macs)
+
+    async def _nft_element(self, verb: str, mac: str) -> None:
+        proc = await asyncio.create_subprocess_exec(
+            self._nft, verb, "element", TABLE_FAMILY, TABLE_NAME, "blocked_macs", "{", mac, "}",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()  # table may not exist yet; the list is applied with the ruleset
+
+    async def block_mac(self, mac: str) -> None:
+        """Cut a device's internet until it is unblocked."""
+        mac = mac.lower()
+        if not _MAC_RE.fullmatch(mac):
+            raise ValueError("Invalid device address")
+        if mac not in self._blocked_macs:
+            self._blocked_macs.append(mac)
+        await self._nft_element("add", mac)
+
+    async def unblock_mac(self, mac: str) -> None:
+        mac = mac.lower()
+        if mac in self._blocked_macs:
+            self._blocked_macs.remove(mac)
+        await self._nft_element("delete", mac)
+
     def add_plugin_rule(self, rule: str) -> None:
         """Queue a rule for the dedicated ``plugin_rules`` forward chain.
 
@@ -203,7 +272,7 @@ class NftablesBackend(FirewallBackend):
 
     async def apply_plugin_rules(self) -> None:
         """Re-apply the ruleset including plugin rules; drop them if nft rejects them."""
-        if not self._plugin_rules or not self._source_iface:
+        if not (self._plugin_rules or self._force_dns) or not self._source_iface:
             return
         try:
             await self._execute_nft(self._build_ruleset())
@@ -260,6 +329,8 @@ class NftablesBackend(FirewallBackend):
         self._gateway_ip = ""
         self._captive_portal_active = False
         self._plugin_rules = []
+        self._ui_port = 0
+        self._force_dns = False
 
     async def setup_mss_clamp(self) -> None:
         """Ensure TCP MSS clamping rule is active in the forward chain."""

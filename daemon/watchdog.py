@@ -53,8 +53,7 @@ from typing import Any
 
 logger = logging.getLogger("netcast.watchdog")
 
-SYSTEM_STATE_DIR = Path("/var/lib/netcast")
-USER_STATE_DIR = Path.home() / ".local" / "state" / "netcast"
+from daemon.paths import SYSTEM_STATE_DIR, USER_STATE_DIR  # noqa: E402
 STATE_FILE_NAME = "deadmans_state.json"
 
 

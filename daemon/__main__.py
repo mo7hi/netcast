@@ -57,8 +57,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("netcast.daemon")
 
-DEFAULT_TOKEN_PATH = Path("/var/lib/netcast/session.token")
-USER_TOKEN_PATH = Path.home() / ".local" / "state" / "netcast" / "session.token"
+from daemon.paths import SYSTEM_STATE_DIR, USER_STATE_DIR  # noqa: E402
+
+DEFAULT_TOKEN_PATH = SYSTEM_STATE_DIR / "session.token"
+USER_TOKEN_PATH = USER_STATE_DIR / "session.token"
 
 
 class SystemdNotifier:

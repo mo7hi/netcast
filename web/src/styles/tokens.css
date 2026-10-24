@@ -1,0 +1,133 @@
+/*
+  NetCast design tokens, built around the logo: watermelon green, watermelon red,
+  and the seed brown for ink. Green means go (start, selected); red means stop or danger.
+  Four built-in looks, each needed for a real reason:
+    system    follows the device (light, dark, or high contrast when the OS asks)
+    light     bright rooms, glare
+    dark      night, dim rooms
+    contrast  low vision: black and white, heavier lines, larger text
+  Plugin skins (data-theme="custom-*") override these same tokens.
+*/
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ground: #f3f5f1;
+  --surface: #ffffff;
+  --surface-2: #e5eae1;
+  --ink: #1f1511;
+  --ink-2: #4a423e;
+  --line: #76826f;
+  --accent: #58ba4f;
+  --on-accent: #1f1511;
+  --accent-ink: #1f6b1c;
+  --ok: #1a6a2b;
+  --ok-bg: #d8efd6;
+  --danger: #b3141b;
+  --danger-bg: #f9dcdc;
+  --danger-fill: #c4161e;
+  --on-danger: #ffffff;
+  --warn: #6b4700;
+  --warn-bg: #f4e5bb;
+  --focus: #0b57d0;
+  --qr-ink: #000000;
+  --qr-bg: #ffffff;
+  --text-scale: 100%;
+  --border-w: 1px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] { /* keep in sync with [data-theme="dark"] */
+    color-scheme: dark;
+    --ground: #0e1310;
+    --surface: #161c18;
+    --surface-2: #212923;
+    --ink: #eef3ec;
+    --ink-2: #a9b5a8;
+    --line: #6f7b73;
+    --accent: #6fd465;
+    --on-accent: #0e1310;
+    --accent-ink: #7fdc76;
+    --ok: #7fdc76;
+    --ok-bg: #173a1b;
+    --danger: #ff9a9c;
+    --danger-bg: #421a1b;
+    --danger-fill: #ff7c80;
+    --on-danger: #1a0b0b;
+    --warn: #f4c95d;
+    --warn-bg: #3a2f10;
+    --focus: #86bbff;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e1310;
+  --surface: #161c18;
+  --surface-2: #212923;
+  --ink: #eef3ec;
+  --ink-2: #a9b5a8;
+  --line: #6f7b73;
+  --accent: #6fd465;
+  --on-accent: #0e1310;
+  --accent-ink: #7fdc76;
+  --ok: #7fdc76;
+  --ok-bg: #173a1b;
+  --danger: #ff9a9c;
+  --danger-bg: #421a1b;
+  --danger-fill: #ff7c80;
+  --on-danger: #1a0b0b;
+  --warn: #f4c95d;
+  --warn-bg: #3a2f10;
+  --focus: #86bbff;
+}
+
+:root[data-theme="contrast"] {
+  color-scheme: dark;
+  --ground: #000000;
+  --surface: #000000;
+  --surface-2: #1a1a1a;
+  --ink: #ffffff;
+  --ink-2: #ffffff;
+  --line: #ffffff;
+  --accent: #7cff72;
+  --on-accent: #000000;
+  --accent-ink: #7cff72;
+  --ok: #7cff72;
+  --ok-bg: #000000;
+  --danger: #ff8a8a;
+  --danger-bg: #000000;
+  --danger-fill: #ff8a8a;
+  --on-danger: #000000;
+  --warn: #ffd000;
+  --warn-bg: #000000;
+  --focus: #00e5ff;
+  --text-scale: 125%;
+  --border-w: 2px;
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme="system"] {
+    color-scheme: dark;
+    --ground: #000000;
+    --surface: #000000;
+    --surface-2: #1a1a1a;
+    --ink: #ffffff;
+    --ink-2: #ffffff;
+    --line: #ffffff;
+    --accent: #7cff72;
+    --on-accent: #000000;
+    --accent-ink: #7cff72;
+    --ok: #7cff72;
+    --ok-bg: #000000;
+    --danger: #ff8a8a;
+    --danger-bg: #000000;
+    --danger-fill: #ff8a8a;
+    --on-danger: #000000;
+    --warn: #ffd000;
+    --warn-bg: #000000;
+    --focus: #00e5ff;
+    --text-scale: 125%;
+    --border-w: 2px;
+  }
+}

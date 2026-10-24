@@ -23,7 +23,7 @@ all: web
 # --- Web UI Build (runs as normal user) ---
 web:
 	@echo "Building NetCast web UI..."
-	cd web && pnpm install && pnpm run build
+	cd web && (command -v pnpm >/dev/null && pnpm install && pnpm run build || (npm install && npm run build))
 	@echo "Web UI built successfully."
 
 # --- Development Setup (runs as normal user) ---
@@ -60,7 +60,7 @@ install: check-root check-web setup-user
 
 	# Web UI static files
 	install -d $(DESTDIR)$(LIBDIR)/netcast/web
-	cp -r web/dist/* $(DESTDIR)$(LIBDIR)/netcast/web/
+	cp -r web/dist/. $(DESTDIR)$(LIBDIR)/netcast/web/
 
 	# Cleanup script
 	install -Dm755 scripts/netcast-cleanup.sh $(DESTDIR)$(BINDIR)/netcast-cleanup

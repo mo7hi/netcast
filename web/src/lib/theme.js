@@ -1,29 +1,33 @@
-/** NetCast theme/skin loader (built-in themes + plugin-registered skins) */
-import { writable, get } from 'svelte/store';
+/** Theme loader: four built-in looks plus skins registered by plugins. */
+import { writable } from 'svelte/store';
 import { theme } from './stores.js';
 import { getSkins, getSkinCss } from './api.js';
 
-const BUILTIN = ['default-dark', 'panic', 'cyberpunk', 'retro-95'];
+export const BUILTIN = [
+  { id: 'system', name: 'Match my device', desc: 'Light or dark following your system, and high contrast if your system asks for it.' },
+  { id: 'light', name: 'Light', desc: 'Best in bright rooms and sunlight.' },
+  { id: 'dark', name: 'Dark', desc: 'Easier on the eyes at night.' },
+  { id: 'contrast', name: 'High contrast', desc: 'Black and white, heavier lines, larger text.' },
+];
 
-export const themeList = writable([...BUILTIN]);
+export const themeList = writable(BUILTIN);
 
-export function setTheme(name) {
-  if (BUILTIN.includes(name) || /^custom-[a-z0-9_-]+$/.test(name)) {
-    document.documentElement.dataset.theme = name;
-    theme.set(name);
-    localStorage.setItem('netcast-theme', name);
-  }
+const KEY = 'netcast-theme';
+const valid = (id, list) => list.some((t) => t.id === id) || /^custom-[a-z0-9_-]+$/.test(id);
+
+export function setTheme(id) {
+  document.documentElement.dataset.theme = id;
+  theme.set(id);
+  try { localStorage.setItem(KEY, id); } catch { /* private mode */ }
 }
 
 export function loadSavedTheme() {
-  setTheme(localStorage.getItem('netcast-theme') || 'default-dark');
+  let saved = 'system';
+  try { saved = localStorage.getItem(KEY) || 'system'; } catch { /* ignore */ }
+  setTheme(valid(saved, BUILTIN) ? saved : 'system');
 }
 
-export function getThemes() {
-  return get(themeList);
-}
-
-/** Fetch plugin skins from the daemon and inject their CSS. Call after login. */
+/** Fetch plugin skins from the daemon and inject their CSS. Call after sign-in. */
 export async function loadCustomSkins() {
   try {
     const { skins } = await getSkins();
@@ -35,7 +39,7 @@ export async function loadCustomSkins() {
       el.textContent = await getSkinCss(s.id);
       document.head.appendChild(el);
     }
-    themeList.set([...BUILTIN, ...custom.map((s) => s.id)]);
+    themeList.set([...BUILTIN, ...custom.map((s) => ({ id: s.id, name: s.name, desc: 'Added by a plugin.' }))]);
     loadSavedTheme();
   } catch { /* skins are optional */ }
 }

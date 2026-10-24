@@ -111,6 +111,9 @@ class NetCastPluginManager(pluggy.PluginManager):
             ("qr_connect", "daemon.builtin_plugins.qr_connect", "QRConnectPlugin"),
             ("status_monitor", "daemon.builtin_plugins.status_monitor", "StatusMonitorPlugin"),
             ("pppoe", "daemon.builtin_plugins.pppoe", "PPPoEPlugin"),
+            ("private_dns", "daemon.builtin_plugins.private_dns", "PrivateDNSPlugin"),
+            ("adblock", "daemon.builtin_plugins.adblock", "AdblockPlugin"),
+            ("notifications", "daemon.builtin_plugins.notifications", "NotificationsPlugin"),
         ]
 
         loaded = 0

@@ -70,7 +70,7 @@ DEFAULT_TOKEN_PATH = Path("/var/lib/netcast/session.token")
 DEV_TOKEN_PATH = Path.home() / ".local" / "share" / "netcast" / "session.token"
 
 # Web UI static files directories (Production vs Development)
-PROD_WEB_DIR = Path("/usr/lib/netcast/web")
+from daemon.paths import WEB_DIR as PROD_WEB_DIR  # noqa: E402
 DEV_WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
 
 # Captive portal probe paths used by popular operating systems
@@ -793,6 +793,79 @@ async def handle_skin_css(request: web.Request) -> web.Response:
     return web.Response(text=skin["css"], content_type="text/css")
 
 
+async def handle_get_platform(request: web.Request) -> web.Response:
+    """GET /api/platform - Operating system, engine and what it supports."""
+    return web.json_response(request.app["daemon_state"].platform_info())
+
+
+async def handle_get_blocked(request: web.Request) -> web.Response:
+    """GET /api/blocked - Devices that are blocked from the internet."""
+    return web.json_response({"blocked": sorted(getattr(request.app["daemon_state"], "blocked", []))})
+
+
+async def _device_action(request: web.Request, coro_name: str, *args: Any) -> web.Response:
+    state = request.app["daemon_state"]
+    try:
+        await getattr(state, coro_name)(request.match_info["mac"], *args)
+    except NotImplementedError as exc:
+        return web.json_response({"error": str(exc)}, status=501)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    except RuntimeError as exc:
+        return web.json_response({"error": str(exc)}, status=409)
+    return web.json_response({"success": True})
+
+
+async def handle_kick(request: web.Request) -> web.Response:
+    """POST /api/clients/{mac}/kick - Disconnect a device (it may rejoin)."""
+    return await _device_action(request, "kick_client")
+
+
+async def handle_block(request: web.Request) -> web.Response:
+    """POST /api/clients/{mac}/block - Block or unblock a device's internet."""
+    try:
+        block = bool((await request.json()).get("block", True))
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+    return await _device_action(request, "block_client", block)
+
+
+async def handle_get_remote(request: web.Request) -> web.Response:
+    """GET /api/remote - Addresses for controlling NetCast from a phone."""
+    info = await request.app["daemon_state"].remote_info()
+    info["password_set"] = request.app["admin_auth"].is_set()
+    return web.json_response(info)
+
+
+async def handle_remote_qr(request: web.Request) -> web.Response:
+    """GET /api/remote/qr?url=... - QR code for a remote-control address."""
+    url = request.query.get("url", "")
+    if not url.startswith(("http://", "https://")) or len(url) > 200:
+        return web.json_response({"error": "Invalid address"}, status=400)
+    buff = io.BytesIO()
+    segno.make(url).save(buff, kind="svg", scale=4, border=2, dark="#000000", light="#ffffff")
+    return web.Response(body=buff.getvalue(), content_type="image/svg+xml")
+
+
+async def handle_get_plugins(request: web.Request) -> web.Response:
+    """GET /api/plugins - Installed plugins with their settings."""
+    return web.json_response({"plugins": request.app["daemon_state"].get_plugins()})
+
+
+async def handle_put_plugin(request: web.Request) -> web.Response:
+    """PUT /api/plugins/{id} - Turn a plugin on or off and save its settings."""
+    try:
+        body = await request.json()
+        plugin = request.app["daemon_state"].set_plugin(
+            request.match_info["plugin_id"], bool(body.get("enabled")), dict(body.get("values") or {})
+        )
+    except KeyError:
+        return web.json_response({"error": "No such plugin"}, status=404)
+    except (ValueError, TypeError) as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    return web.json_response({"plugin": plugin})
+
+
 async def handle_get_status(request: web.Request) -> web.Response:
     """GET /api/status - Return current operational status."""
     daemon_state = request.app["daemon_state"]
@@ -1156,7 +1229,9 @@ async def handle_portal_get(request: web.Request) -> web.Response:
 
     cfg = getattr(request.app["daemon_state"], "config", {})
     msg = (cfg.get("captive_portal", {}) if isinstance(cfg, dict) else {}).get("message")
-    page = CAPTIVE_PORTAL_HTML
+    from daemon.api.portal import render_portal
+
+    page = render_portal(request.app["daemon_state"])
     if msg:
         import html as _html
 
@@ -1424,6 +1499,14 @@ def create_app(
     app.router.add_post("/api/login", handle_login)
     app.router.add_put("/api/admin-password", handle_put_admin_password)
     app.router.add_get("/api/ui/tabs", handle_ui_tabs)
+    app.router.add_get("/api/platform", handle_get_platform)
+    app.router.add_get("/api/blocked", handle_get_blocked)
+    app.router.add_post("/api/clients/{mac}/kick", handle_kick)
+    app.router.add_post("/api/clients/{mac}/block", handle_block)
+    app.router.add_get("/api/remote", handle_get_remote)
+    app.router.add_get("/api/remote/qr", handle_remote_qr)
+    app.router.add_get("/api/plugins", handle_get_plugins)
+    app.router.add_put("/api/plugins/{plugin_id}", handle_put_plugin)
     app.router.add_get("/api/ui/tab/{tab_id}", handle_ui_tab)
     app.router.add_get("/api/skins/{skin_id}", handle_skin_css)
     app.router.add_get("/api/health", handle_get_status)

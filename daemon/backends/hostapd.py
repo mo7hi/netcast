@@ -257,9 +257,13 @@ class HostapdBackend(NetworkingBackend):
             f"dhcp-option=option:router,{self._gateway_ip}",
             f"dhcp-option=option:dns-server,{self._gateway_ip}",
             f"dhcp-leasefile={lease_file}",
-            "server=1.1.1.1",
-            "server=8.8.8.8",
         ]
+        # Plugins (private DNS, ad blocking) add their own lines; plain DNS is the fallback.
+        extra = list(getattr(self, "extra_dnsmasq", None) or [])
+        if not any(line.startswith("server=") for line in extra):
+            lines += ["server=1.1.1.1", "server=8.8.8.8"]
+        lines.append(f"address=/netcast.lan/{self._gateway_ip}")
+        lines += extra
         return "\n".join(lines) + "\n"
 
     async def _configure_interface_ip(self, iface: str) -> None:
@@ -445,6 +449,26 @@ class HostapdBackend(NetworkingBackend):
                     p.unlink()
 
         self._current_config = None
+
+    async def kick_client(self, mac: str) -> None:
+        """Disconnect one station; it is free to rejoin."""
+        from daemon.backends.base import validate_mac_address
+
+        if not self._current_config:
+            raise RuntimeError("The hotspot is not running")
+        if not validate_mac_address(mac):
+            raise ValueError("Invalid device address")
+        cli = shutil.which("hostapd_cli")
+        if not cli:
+            raise RuntimeError("hostapd_cli is not installed")
+        ap_iface = self._current_config.ap_interface
+        proc = await asyncio.create_subprocess_exec(
+            cli, "-p", str(self._run_dir / "hostapd_ctrl"), "-i", ap_iface, "deauthenticate", mac,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Could not disconnect the device: {err.decode(errors='ignore').strip()}")
 
     async def _live_station_macs(self, ap_iface: str) -> set[str] | None:
         """MACs currently associated with the AP, or None if undeterminable."""

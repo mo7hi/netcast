@@ -46,7 +46,9 @@ USER_CONFIG_PATH = Path.home() / ".config" / "netcast" / "config.toml"
 
 # Validation patterns
 VALID_BANDS: frozenset[str] = frozenset({"bg", "a"})
-VALID_SOURCE_TYPES: frozenset[str] = frozenset({"auto", "ethernet", "wifi", "pppoe", "usb"})
+VALID_SOURCE_TYPES: frozenset[str] = frozenset(
+    {"auto", "ethernet", "wifi", "pppoe", "usb", "cellular", "vpn"}
+)
 SSID_PATTERN = re.compile(r"^.{1,32}$")
 INTERFACE_PATTERN = re.compile(r"^[a-zA-Z0-9_.:-]{1,16}$")
 
@@ -205,6 +207,7 @@ class NetCastConfig:
     fair_share: FairShareConfig = field(default_factory=FairShareConfig)
     captive_portal: CaptivePortalConfig = field(default_factory=CaptivePortalConfig)
     pppoe: PPPoEConfig = field(default_factory=PPPoEConfig)
+    plugins: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def validate(self) -> None:
         """Validate all configuration sections."""
@@ -276,6 +279,7 @@ def parse_config_dict(data: dict[str, Any]) -> NetCastConfig:
         fair_share=FairShareConfig(**fair_share_data),
         captive_portal=CaptivePortalConfig(**captive_portal_data),
         pppoe=PPPoEConfig(**pppoe_data),
+        plugins={k: dict(v) for k, v in data.get("plugins", {}).items() if isinstance(v, dict)},
     )
     cfg.validate()
     return cfg
